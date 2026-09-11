@@ -84,7 +84,7 @@ function consume(word,    value,name,pos) {
     }
     line=pending $0; pending=""
     if (line ~ /\\$/ && continues(line)) { pending=substr(line,1,length(line)-1); next }
-    command=1; want=0; word=""; quote=""
+    command=1; want=0; word=""; quote=""; braces=0
     for (j=1; j<=length(line); j++) {
         ch=substr(line,j,1)
         if (ch=="\\" && quote!="\047") { word=word ch substr(line,++j,1); continue }
@@ -92,29 +92,31 @@ function consume(word,    value,name,pos) {
         if (ch=="\"" && quote!="\047") { quote=(quote=="\"" ? "" : "\""); word=word ch; continue }
         if (quote!="") { word=word ch; continue }
         if (ch=="#" && word=="") break
-        if (substr(line,j,3)=="<<<") { j+=2; continue }
-        if (ch=="<" && substr(line,j,2)=="<<" && substr(line,j,3)!="<<<") {
+        if (!braces && substr(line,j,3)=="<<<") { j+=2; continue }
+        if (!braces && ch=="<" && substr(line,j,2)=="<<" && substr(line,j,3)!="<<<") {
             rest=substr(line,j+2); strip_tabs=(substr(rest,1,1)=="-")
             if (strip_tabs) rest=substr(rest,2)
             sub(/^[ \t]+/,"",rest); split(rest,delim,/[ \t;|&]/)
             heredoc=delim[1]; gsub(/["\047]/,"",heredoc)
             # Multiple/expanded delimiters cannot be followed safely.
             if (heredoc !~ /^[A-Za-z0-9_]+$/ || rest ~ /<</) {
-                print NR "\t?"; exit
+                print NR "\t!"; exit
             }
             break
         }
+        # Keep an entire parameter expansion in its word, including nested
+        # expansions and quoted braces. Its value may still be unresolved.
+        if (ch=="{" && substr(word,length(word),1)=="$") braces++
+        if (braces) {
+            if (ch=="}") braces--
+            word=word ch; continue
+        }
         if (ch ~ /[ \t;|&(){}]/) {
-            # Braces inside parameter expansions belong to the word.
-            if (ch=="{" && substr(word,length(word),1)=="$") {
-                end=index(substr(line,j+1),"}")
-                if (end) { word=word substr(line,j,end+1); j+=end; continue }
-            }
             if (word!="") { consume(word); word="" }
             if (ch ~ /[;|&(){}]/) { if (want) { print NR "\t?"; want=0 }; command=1 }
         } else word=word ch
     }
-    if (quote!="") { print NR "\t?"; exit }
+    if (quote!="") { print NR "\t!"; exit }
     if (word!="") consume(word)
     if (want) print NR "\t?"
 }

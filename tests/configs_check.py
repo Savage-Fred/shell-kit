@@ -42,7 +42,31 @@ EOF
     assert '/not/a/config' not in out and '/heredoc/not/config' not in out and '/not/a/command' not in out, out
     assert not (home/'EXECUTED').exists()
     assert '\x1b' not in out
-    assert '~/.bashrc' in run()
+    with (home/'.bashrc').open('a') as config:
+        config.write('source "$HOME/missing-venv/activate"\n')
+    inventory = run()
+    assert '~/.bashrc' in inventory and '~/space name.sh' in inventory, inventory
+    assert 'missing-venv' not in inventory and '[dynamic source' not in inventory, inventory
+    assert 'configs deps' in inventory, inventory
+    assert inventory.count('|-- ~/.bashrc ') == 1, inventory
+    detailed = run('deps', '-f', str(home/'.bashrc'))
+    assert 'missing-venv/activate' in detailed and '[dynamic source' in detailed, detailed
+    # Balanced parameter expansions must not stop scanning the rest of a file.
+    (home/'parameters.sh').write_text("helper -- ${opts[@]+\"${opts[@]}\"} -W '$input'\n" +
+                                      'source "$HOME/fallback.sh"\n')
+    with (home/'parameters.sh').open('a') as config:
+        config.write('echo ${X:-a<<b}\necho ${X:1<<2}\nsource "$HOME/space name.sh"\n')
+    parameters = run('deps', '-f', str(home/'parameters.sh'))
+    assert '~/fallback.sh' in parameters and '[dynamic source' not in parameters, parameters
+    assert '~/space name.sh' in parameters and 'scan stopped' not in parameters, parameters
+    (home/'unsupported.sh').write_text("message='multi\nline'\n")
+    unsupported = run('deps', '-f', str(home/'unsupported.sh'))
+    assert 'scan stopped' in unsupported and 'dynamic source' not in unsupported, unsupported
+    (home/'bang.sh').write_text('source \"!\"\n')
+    assert 'scan stopped' not in run('deps', '-f', str(home/'bang.sh'))
+    missing = subprocess.run([BASH, str(ROOT/'vanilla/configs'), 'deps', '-d', str(home/'absent')],
+                             env=env, text=True, capture_output=True)
+    assert missing.returncode != 0 and 'configs deps' in missing.stderr, missing.stderr
     (home/'.bash_profile').write_text('. "$HOME/.bashrc"\n')
     env['CONFIGS_LOGIN'] = '1'
     assert '~/.bash_profile' in run()
