@@ -78,7 +78,10 @@ if (nvim / 'init.lua').exists():
 else:
     block(nvim / 'init.vim', vim_body, '"')
 for base in ('.agents/skills', '.codex/skills', '.claude/skills', '.gemini/skills', '.gemini/antigravity/skills'):
-    link(HOME / base / 'tmux-reference', ROOT / 'skills/tmux-reference')
+    try:
+        link(HOME / base / 'tmux-reference', ROOT / 'skills/tmux-reference')
+    except PermissionError:
+        print('Skip read-only skill directory: ' + str(HOME / base) + '; shared .agents/skills link remains available')
 if not args.dry_run and not args.uninstall:
     runtime = HOME / '.local/share/shell-kit-runtime/bin'
     runtime.mkdir(parents=True, exist_ok=True)

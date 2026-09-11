@@ -1,7 +1,7 @@
 # Source from interactive Bash or Zsh. Existing user definitions win.
 case $- in *i*) ;; *) return ;; esac
 export SHELL_KIT_ROOT="$HOME/.local/share/shell-kit"
-case ":$PATH:" in *":$SHELL_KIT_ROOT/bin:"*) ;; *) export PATH="$SHELL_KIT_ROOT/bin:$PATH" ;; esac
+case ":$PATH:" in *":$SHELL_KIT_ROOT/bin:"*) ;; *) export PATH="$SHELL_KIT_ROOT/bin:$HOME/.local/share/shell-kit-runtime/bin:$PATH" ;; esac
 
 if ! type aliases >/dev/null 2>&1; then
     aliases() {
