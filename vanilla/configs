@@ -13,8 +13,8 @@ Usage: configs
        configs deps [-f FILE] [-d DIRECTORY]
        configs open FILE
 
-Shows existing startup files and possible source dependencies, without running
-configs. Children are sourced by their parent. Conditions are not evaluated.
+Lists existing config candidates once, without running them. Use deps for the
+source tree, including conditional/function-body references and missing paths.
 -f selects a root; -d scans regular files below a directory (or resolves a
 relative -f within that directory). Relative sources use the invocation working
 directory and PATH, as shells do. Dynamic expressions are marked unresolved.
@@ -23,6 +23,7 @@ editor (VISUAL/EDITOR), or macOS open -t / Linux xdg-open when available.
 EOF
 }
 fail() { printf 'configs: %s\n' "$*" >&2; exit 1; }
+details=0
 case ${1-} in
     -h|--help) usage; exit ;;
     open)
@@ -38,7 +39,7 @@ case ${1-} in
         elif [ "$(uname -s)" = Darwin ] && command -v open >/dev/null 2>&1; then exec open -t "$file"
         elif command -v xdg-open >/dev/null 2>&1; then exec xdg-open "$file"
         else fail 'set VISUAL or EDITOR to a text editor'; fi ;;
-    deps) shift ;;
+    deps) details=1; shift ;;
     '') ;;
     *) fail "unknown command: $1 (see --help)" ;;
 esac
@@ -54,7 +55,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 if [ -n "$directory" ]; then
-    [ -d "$directory" ] || fail "not a directory: $directory"
+    [ -d "$directory" ] || fail "not a directory: $directory. Use an existing directory, or configs deps for shell startup files."
     directory=$(cd -P "$directory" && pwd)
 fi
 if [ -n "$file" ]; then
@@ -78,9 +79,15 @@ label() {
         printf '\033]8;;file://%s\033\\%s\033]8;;\033\\' "$uri" "$shown"
     else printf '%s' "$shown"; fi
 }
-seen=(); stack=()
+seen=(); stack=(); missing=0; unresolved=0; incomplete=0
 walk() {
     local path=$1 prefix=$2 note=$3 physical item line child kind resolved part found
+    if [ "$details" = 0 ]; then
+        if [ ! -f "$path" ] || [ ! -r "$path" ]; then missing=$((missing + 1)); return; fi
+        for item in "${seen[@]}"; do [ ! "$path" -ef "$item" ] || return 0; done
+        prefix=''
+        case $note in source,*) note='source candidate' ;; esac
+    fi
     printf '%s|-- ' "$prefix"; label "$path"; printf '  %s' "$note"
     if [ ! -f "$path" ] || [ ! -r "$path" ]; then printf ' [missing/unreadable]\n'; return; fi
     physical=$path
@@ -91,10 +98,18 @@ walk() {
     for item in "${seen[@]}"; do
         if [ "$physical" -ef "$item" ]; then printf ' [already shown]\n'; return; fi
     done
-    if [ "${#stack[@]}" -ge 32 ]; then printf ' [depth limit]\n'; return; fi
+    if [ "${#stack[@]}" -ge 32 ]; then printf ' [depth limit]\n'; incomplete=$((incomplete + 1)); return; fi
     printf '\n'; seen[${#seen[@]}]=$physical; stack[${#stack[@]}]=$physical
     while IFS=$'\t' read -r line child kind; do
-        if [ "$child" = '?' ]; then printf '%s  |-- [dynamic source at line %s; unresolved]\n' "$prefix" "$line"; continue; fi
+        if [ "$child" = '?' ]; then
+            unresolved=$((unresolved + 1))
+            if [ "$details" = 1 ]; then printf '%s    |-- [dynamic source at line %s; unresolved]\n' "$prefix" "$line"; fi
+            continue
+        elif [ "$child" = '!' ] && [ -z "$kind" ]; then
+            incomplete=$((incomplete + 1))
+            if [ "$details" = 1 ]; then printf '%s    |-- [scan stopped at line %s; unsupported syntax]\n' "$prefix" "$line"; fi
+            continue
+        fi
         resolved=$child
         case $child in
             /*) ;;
@@ -109,7 +124,8 @@ walk() {
                     done
                     IFS=$old_ifs
                     if [ "$shell" = zsh ] && [ "$kind" = . ] && [ "$found" = 0 ]; then
-                        printf '%s  |-- [source at line %s: file not found on PATH]\n' "$prefix" "$line"
+                        missing=$((missing + 1))
+                        if [ "$details" = 1 ]; then printf '%s    |-- [source at line %s: file not found on PATH]\n' "$prefix" "$line"; fi
                         continue
                     fi
                 fi ;;
@@ -119,7 +135,11 @@ walk() {
     done < <(awk -f "$SCANNER" "$path")
     unset 'stack[${#stack[@]}-1]'
 }
-printf 'Possible source tree (static; conditions and function calls are not evaluated)\n'
+if [ "$details" = 1 ]; then
+    printf 'Possible source tree (static; includes conditional and function-body sources)\n'
+else
+    printf 'Existing config files (static candidates; not proof they were loaded)\n'
+fi
 if [ -n "$file" ]; then walk "$file" '' 'selected file'
 elif [ -n "$directory" ]; then
     # Explicit directory scans include extensionless dotfiles, never symlinks/FIFOs.
@@ -147,4 +167,9 @@ else
             if [ "${CONFIGS_LOGIN:-0}" = 1 ]; then root "$sys/zlogin" 'system login commands'; root "$zdot/.zlogin" 'user login commands'; fi ;;
         *) fail 'set CONFIGS_SHELL=bash or zsh, or use deps -f FILE' ;;
     esac
+fi
+
+if [ "$details" = 0 ]; then
+    printf '\nOmitted: %s missing/unreadable, %s unresolved sources; %s incomplete scans.\n' "$missing" "$unresolved" "$incomplete"
+    printf 'Run configs deps for source relationships and details.\n'
 fi

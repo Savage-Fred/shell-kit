@@ -184,9 +184,9 @@ aliases ssh             # name or body contains ssh
 sfind 'needle' .         # literal match, full paths, ±1 line, highlighting
 dfind 'partial-name' .  # full matching directory paths
 pfind 'needle' log.txt  # each match through the next blank line
-configs                 # shell startup files and possible source tree
+configs                 # existing config candidates, listed once
 configs deps -f ~/.bashrc
-configs deps -d ~/.config/bash
+configs deps            # source tree for the current shell
 configs open ~/.bashrc  # open with your editor
 
 tmenu                   # roomy session picker with window preview
@@ -212,17 +212,21 @@ support. `configs open FILE` uses `$VISUAL`/`$EDITOR` (an executable path or com
 with simple space-separated arguments), then macOS `open -t` or Linux `xdg-open`.
 The latter uses your desktop file association, which you can set to a text editor.
 
-Each indented child is a possible file sourced by its parent; line numbers point
+Plain `configs` lists existing candidates once and summarizes missing paths,
+unresolved sources and incomplete scans. These are not startup error reports:
+references inside uncalled functions and unmet conditions are candidates too.
+
+In `configs deps`, each indented child is a possible file sourced by its parent; line numbers point
 to the source statement. The scanner follows `.` and `source`, quoted paths,
 exported variables, simple assignments within a file, and `${VAR:-fallback}`.
 It never runs config code. Conditions, functions, shell options, runtime changes
 to directories/variables and computed paths prevent a static scan from proving
 exactly what was loaded. Dynamic sources are marked unresolved; complex heredocs
-or multiline quotes stop that file's scan with the same marker. Variables assigned
+or multiline quotes stop that file's scan with a separate “scan stopped” marker. Variables assigned
 by one file are not propagated into another. This is a startup/source map, not
 an execution trace or a scan of every application's settings.
 
-`-f` chooses one root; `-d` alone visits regular files recursively (except `.git`
+`-f` chooses one root; `-d DIRECTORY` requires an existing directory and visits regular files recursively (except `.git`
 and symlinks). Together, `-d` resolves a relative `-f`. Relative source paths use
 the invocation working directory and shell search order, not the config's parent
 directory. Source cycles and repeated files are marked; recursion stops at 32
