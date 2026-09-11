@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320" role="img" aria-labelledby="title desc">
+<title id="title">Sheila the koala</title><desc id="desc">A friendly grey koala on eucalyptus green, with a small terminal prompt.</desc>
+<rect width="320" height="320" rx="68" fill="#173f38"/>
+<circle cx="70" cy="112" r="49" fill="#aab7b9"/><circle cx="250" cy="112" r="49" fill="#aab7b9"/>
+<circle cx="70" cy="112" r="30" fill="#e3ced0"/><circle cx="250" cy="112" r="30" fill="#e3ced0"/>
+<ellipse cx="160" cy="155" rx="92" ry="95" fill="#c3cdcc"/>
+<circle cx="123" cy="143" r="8" fill="#233736"/><circle cx="197" cy="143" r="8" fill="#233736"/>
+<ellipse cx="160" cy="168" rx="22" ry="32" fill="#233736"/>
+<path d="M143 207Q160 221 177 207" fill="none" stroke="#233736" stroke-width="5" stroke-linecap="round"/>
+<rect x="96" y="244" width="128" height="45" rx="12" fill="#0c2723"/>
+<path d="m116 257 11 10-11 10m24 0h18" fill="none" stroke="#bfe995" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="178" y="276" fill="#bfe995" font-size="21" font-family="monospace">S</text>
+</svg>

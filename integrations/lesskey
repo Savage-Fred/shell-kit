@@ -1,0 +1,9 @@
+#command
+\eOP quit
+\eOQ quit
+\eOR quit
+\eOS quit
+\e[11~ quit
+\e[12~ quit
+\e[13~ quit
+\e[14~ quit

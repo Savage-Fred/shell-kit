@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Runnable integration checks. Uses a temporary HOME and private tmux socket."""
+import importlib.machinery
+import importlib.util
+import os
+from pathlib import Path
+import shutil
+import subprocess as sp
+import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+
+def load(name, path):
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
+    spec = importlib.util.spec_from_loader(name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+search = load('search', ROOT / 'bin/shell-kit-search')
+text = "alias ll='ls -l'\nalias gs='git status'\nremote ()\n{\n    ssh \"$@\"\n}\n"
+assert [n for n, _ in search.definitions(text, 'l')] == ['ll']
+assert [n for n, _ in search.definitions(text, 'ssh')] == ['remote']
+assert [n for n, _ in search.definitions(text, 'git')] == ['gs']
+for sheet in (ROOT / 'sheets').glob('*.md'):
+    assert all(len(line) <= 80 for line in sheet.read_text().splitlines()), sheet
+
+with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
+    home = Path(tmp)
+    env = dict(os.environ, HOME=tmp, TERM='xterm-256color', CHEAT_CLIENT='desktop')
+    env.pop('TMUX', None)
+    env.pop('TMUX_PANE', None)
+    def call(*cmd, input=None, check=True):
+        return sp.run(cmd, env=env, input=input, text=True, stdout=sp.PIPE, stderr=sp.PIPE, check=check)
+    call('python3', str(ROOT / 'install.py'))
+    before = (home / '.bashrc').read_text()
+    call('python3', str(ROOT / 'install.py'))
+    assert (home / '.bashrc').read_text() == before, 'installer must be idempotent'
+    sample = home / 'file with spaces.txt'
+    sample.write_text('before\nneedle.* literal\nafter\n\nother\nneedle.* second\nlast\n')
+    found = call(str(ROOT / 'bin/shell-kit-search'), 'sfind', 'needle.*', tmp).stdout
+    assert str(sample) in found and 'before' in found and 'after' in found
+    block = call(str(ROOT / 'bin/shell-kit-search'), 'pfind', 'needle.*', str(sample)).stdout
+    assert '1: before' not in block and '3: after' in block and '7: last' in block
+    (home / 'name with spaces').mkdir()
+    assert str(home / 'name with spaces') in call(str(ROOT / 'bin/shell-kit-search'), 'dfind', 'with', tmp).stdout
+    call('bash', '-n', str(ROOT / 'integrations/shell.sh'))
+    if shutil.which('zsh'):
+        call('zsh', '-n', str(ROOT / 'integrations/shell.sh'))
+    sock = str(home / 'tmux.sock')
+    def tm(*args):
+        return call('tmux', '-S', sock, *args).stdout.strip()
+    try:
+        tm('-f', '/dev/null', 'new-session', '-d', '-s', 'check', '-x', '180', '-y', '50', 'sleep 300')
+        pane = tm('display-message', '-p', '#{pane_id}')
+        env.update(TMUX=f'{sock},0,0', TMUX_PANE=pane)
+        def cheat(*args):
+            return call(str(ROOT / 'bin/cheat'), *args).stdout
+        def rows():
+            return [r.split('|') for r in tm('list-panes', '-F', '#{pane_id}|#{@shell_kit}|#{pane_left}|#{pane_active}').splitlines()]
+        cheat('tmux')
+        assert len(rows()) == 2, rows()
+        assert [r[0] for r in rows() if r[3] == '1'] == [pane], 'opening stole focus'
+        cheat('tmux')
+        assert len(rows()) == 1, 'same toggle failed to close'
+        cheat('open', 'tmux')
+        tm('split-window', '-d', '-v', '-t', pane, 'sleep 300')
+        cheat('auto', 'vim', pane, 'editor-test')
+        r = rows()
+        assert len(r) == 4 and all(x[2] == '0' for x in r if x[1]), r
+        cheat('auto', 'vim', pane, 'editor-test')
+        assert len(rows()) == 4, 'duplicate sheet'
+        cheat('close-owner', 'other-editor')
+        assert len(rows()) == 4
+        cheat('close-owner', 'editor-test')
+        assert len(rows()) == 3
+        cheat('auto', 'vim', pane, 'editor-test')
+        cheat('attach', pane, '/unregistered-client')
+        assert len(rows()) == 3 and any(r[1] == 'tmux' for r in rows()), 'phone removed manual sheet or retained auto sheet'
+        assert cheat('profile').strip() == 'phone'
+        # Real tmux config parsing; hook can execute with a terminal client later.
+        tm('source-file', str(ROOT / 'integrations/tmux.conf'))
+        assert 'shell-kit' in tm('list-keys', '-T', 'root', 'F1')
+        cheat('close', 'tmux')
+        assert len(rows()) == 2
+        print('PASS: search, installer, shell syntax, tmux focus/stack/toggle/ownership/profile')
+    finally:
+        sp.run(['tmux', '-S', sock, 'kill-server'], env=env, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+    env.pop('TMUX', None)
+    env.pop('TMUX_PANE', None)
+    # Standalone editor keeps active work buffer and dismisses its help on quit.
+    editor = shutil.which('nvim') or shutil.which('vim')
+    script = home / 'editor-check.vim'
+    result = home / 'vim-result'
+    script.write_text('set columns=180 lines=50\nsource ' + str(ROOT / 'integrations/vim.vim') + '\n' +
+        'call ShellKitSheet("vim", 0)\n' +
+        'call assert_equal(2, winnr("$"))\ncall assert_equal("", get(w:, "shell_kit", ""))\n' +
+        'call ShellKitSheet("grep", 0)\ncall assert_equal(3, winnr("$"))\n' +
+        'call ShellKitSheet("vim", 0)\ncall assert_equal(2, winnr("$"))\n' +
+        'call ShellKitCleanup()\ncall assert_equal(1, winnr("$"))\n' +
+        'call writefile(v:errors, ' + repr(str(result)) + ')\nqa!\n')
+    call(editor, '-u', 'NONE', '-i', 'NONE', '-n', '-es', '-S', str(script))
+    assert result.read_text() == '', result.read_text()
+    call('python3', str(ROOT / 'install.py'), '--uninstall')
+    assert 'BEGIN SHELL-KIT' not in (home / '.bashrc').read_text()
+    assert not (home / '.local/share/shell-kit').exists()
+    print('PASS: standalone Vim/Neovim stacking, focus, toggle, cleanup and uninstall')
