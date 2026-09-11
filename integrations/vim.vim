@@ -34,6 +34,8 @@ function! ShellKitSheet(topic, auto) abort
   silent 1delete _
   let w:shell_kit = a:topic
   setlocal buftype=nofile bufhidden=wipe noswapfile nobuflisted
+  if !exists('g:syntax_on') | syntax enable | endif
+  if !exists('g:markdown_fenced_languages') | let g:markdown_fenced_languages = ['sh', 'python', 'vim'] | endif
   setlocal filetype=markdown nonumber norelativenumber wrap linebreak
   setlocal readonly nomodifiable winfixwidth
   nnoremap <buffer> q :close<CR>

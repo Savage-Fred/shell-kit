@@ -64,6 +64,10 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
             return call(str(ROOT / 'bin/cheat'), *args).stdout
         def rows():
             return [r.split('|') for r in tm('list-panes', '-F', '#{pane_id}|#{@shell_kit}|#{pane_left}|#{pane_active}').splitlines()]
+        env['FZF_DEFAULT_OPTS'] = '--filter=shell-kit-no-match-should-cancel'
+        call(str(ROOT / 'bin/tmenu'))
+        env.pop('FZF_DEFAULT_OPTS')
+        assert len(rows()) == 1, 'session picker cancellation changed panes'
         cheat('tmux')
         assert len(rows()) == 2, rows()
         assert [r[0] for r in rows() if r[3] == '1'] == [pane], 'opening stole focus'

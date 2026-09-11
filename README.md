@@ -180,6 +180,7 @@ a short opt-in tip can be added without changing the layout or viewer.
 ```sh
 python3 tests/check.py
 python3 tests/pty_check.py
+python3 tests/shell_keys.py
 python3 -m unittest discover -s legacy/homelab-shell/scripts -p 'test_*.py'
 ```
 
