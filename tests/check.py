@@ -62,6 +62,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         env.update(TMUX=f'{sock},0,0', TMUX_PANE=pane)
         def cheat(*args):
             return call(str(ROOT / 'bin/cheat'), *args).stdout
+        assert cheat('tip').startswith('Sheila: ')
         def rows():
             return [r.split('|') for r in tm('list-panes', '-F', '#{pane_id}|#{@shell_kit}|#{pane_left}|#{pane_active}').splitlines()]
         env['FZF_DEFAULT_OPTS'] = '--filter=shell-kit-no-match-should-cancel'

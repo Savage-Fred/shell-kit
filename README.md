@@ -172,8 +172,10 @@ Gemini and Antigravity discovery directories by the installer. Other harnesses
 can link `skills/tmux-reference` into their SKILL.md discovery location. Restart
 or refresh the harness's skill discovery after installation.
 
-The tmux tip of the day is deferred. The always-available reference comes first;
-a short opt-in tip can be added without changing the layout or viewer.
+Sheila shows a seven-second status-line tip once per session per day for
+desktop/Mac profiles. Tips come directly from the sheet's compact shortcuts,
+so edits stay in sync. `cheat tip` prints today's tip; start the tmux server
+with `CHEAT_TIPS=0` to disable automatic tips. Phone profiles never show them.
 
 ## Verify
 
