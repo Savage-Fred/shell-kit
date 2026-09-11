@@ -96,8 +96,13 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         cheat('close-owner', 'editor-test')
         assert len(rows()) == 3
         cheat('auto', 'vim', pane, 'editor-test')
+        stale = call(str(ROOT / 'bin/cheat'), 'attach', '%999999', '/gone-client', check=False)
+        assert stale.returncode == 0, 'late hook for a deleted pane must exit quietly'
+        previous = rows()
         cheat('attach', pane, '/unregistered-client')
-        assert len(rows()) == 3 and any(r[1] == 'tmux' for r in rows()), 'phone removed manual sheet or retained auto sheet'
+        assert rows() == previous, 'detached client must not change current help policy'
+        cheat('close-owner', 'editor-test')
+        tm('set-option', '@shell_kit_client', 'phone')
         assert cheat('profile').strip() == 'phone'
         # Real tmux config parsing; hook can execute with a terminal client later.
         tm('source-file', str(ROOT / 'integrations/tmux.conf'))
