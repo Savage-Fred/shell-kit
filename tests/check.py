@@ -8,6 +8,7 @@ import shutil
 import subprocess as sp
 import tempfile
 import time
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,6 +18,21 @@ def load(name, path):
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+controller = load('controller', ROOT / 'bin/cheat')
+# A client can depart after validation but before the hook changes its pane.
+with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', Path(state)):
+    failure = sp.CalledProcessError(1, ['tmux', 'list-panes'])
+    with patch.object(controller, 'tm', side_effect=['/test-tty', '', failure, '']):
+        controller.main(['attach', '%1', '/test-tty'])
+    # Real errors for a still-attached client must remain visible.
+    with patch.object(controller, 'tm', side_effect=['/test-tty', '', failure, '/test-tty']):
+        try:
+            controller.main(['attach', '%1', '/test-tty'])
+        except sp.CalledProcessError:
+            pass
+        else:
+            raise AssertionError('active-client hook error was hidden')
 
 search = load('search', ROOT / 'bin/shell-kit-search')
 text = "alias ll='ls -l'\nalias gs='git status'\nremote ()\n{\n    ssh \"$@\"\n}\n"
