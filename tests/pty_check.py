@@ -54,10 +54,13 @@ def main():
                 if predicate():
                     return
                 time.sleep(.05)
+            screens = '\n'.join(row[0] + ':\n' + tm(
+                'capture-pane', '-p', '-t', row[0], check=False)
+                for row in rows() if not row[1])
             raise AssertionError(label + '\nPanes: ' + tm(
                 'list-panes', '-a', '-F',
                 '#{pane_id}|#{@shell_kit}|#{pane_current_command}|#{pane_active}',
-                check=False))
+                check=False) + '\nWork terminal output:\n' + screens)
 
         def client(profile, create=False):
             command = [str(ROOT / 'bin/cheat'), 'register']
