@@ -44,6 +44,16 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     assert (home / '.bashrc').read_bytes() == installed, 'rerun changed config'
     runtime = home / '.local/share/shell-kit-runtime/bin'
     assert (runtime / 'cheat').exists() and not (runtime / 'tmenu').exists()
+    # With no pager, a popup would close as soon as cat exits. Keep the sheet
+    # in the calling shell's scrollback, even when invoked from inside tmux.
+    fake_tmux = minimal / 'tmux'
+    fake_tmux.write_text('#!/bin/sh\nexit 99\n')
+    fake_tmux.chmod(0o755)
+    plain = sp.run([str(runtime / 'cheat'), 'tmux'], env=dict(env, TMUX='test'),
+                   text=True, capture_output=True)
+    assert plain.returncode == 0, plain.stderr
+    assert plain.stdout == (ROOT / 'sheets/tmux.md').read_text(), plain.stdout
+    fake_tmux.unlink()
     assert not (home / '.tmux.conf').exists(), 'unselected component installed'
     assert (Path(env['ZDOTDIR']) / '.zshrc').exists()
     assert not (home / '.zshrc').exists(), 'ignored ZDOTDIR'

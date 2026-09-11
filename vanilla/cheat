@@ -17,7 +17,7 @@ file="$ROOT/sheets/$topic.md"
 if [ "$action" = edit ]; then
     # EDITOR is an executable name/path. Flags belong in an editor wrapper.
     exec "${EDITOR:-vi}" "$file"
-elif [ -n "${TMUX-}" ] && [ "$action" != view ]; then
+elif [ -n "${TMUX-}" ] && [ "$action" != view ] && command -v less >/dev/null 2>&1; then
     # printf %q produces Bash quoting; invoke Bash explicitly, even under Zsh.
     printf -v command 'exec bash %q view %q' "$HOME/.local/share/shell-kit-runtime/bin/cheat" "$topic"
     exec tmux display-popup -E -w 80% -h 80% "$command"
