@@ -15,6 +15,11 @@ import termios
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+MODE = sys.argv[1] if len(sys.argv) > 1 else 'enhanced'
+assert MODE in ('vanilla', 'enhanced')
+if MODE == 'enhanced':
+    assert (ROOT / '.venv/bin/python').exists(), 'Prepare enhanced dependencies first (see README)'
+    sp.run([str(ROOT / '.venv/bin/python'), '-c', 'import rich'], check=True)
 
 
 def main():
@@ -26,7 +31,7 @@ def main():
         for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV', 'ZDOTDIR',
                     'SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY'):
             env.pop(key, None)
-        sp.run([sys.executable, str(ROOT / 'install.py')], env=env,
+        sp.run(['bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', MODE, '--yes'], env=env,
                check=True, stdout=sp.DEVNULL)
         for rc in ('.bashrc', '.zshrc'):
             with (home / rc).open('a') as stream:

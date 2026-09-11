@@ -5,6 +5,10 @@
 A saved home for small, reusable terminal tools. Sheila keeps the shortcuts
 beside your work so you can stop looking them up.
 
+Start with `bash install.sh`. Choose only the components you want. New installs
+default to vanilla mode: Bash and standard Unix tools, without Python or a package
+manager. Enhanced rendering and automatic sidebars are optional.
+
 ## Start here
 
 | Shortcut | Reference |
@@ -19,7 +23,7 @@ terminal must send function keys instead of consuming them as app shortcuts.
 The command equivalents always work: `cheat tmux`, `cheat vim`, `cheat grep`,
 `cheat aliases`. Inside the editor, `:call ShellKitSheet('vim', 0)` is available.
 
-In tmux, sheets stack on the **left**, work stays on the **right**, and opening
+In **enhanced mode**, tmux sheets stack on the **left**, work stays on the **right**, and opening
 help keeps your typing focus. Move into help with `Ctrl-b ←`; use arrows,
 PageUp/PageDown, `/` to search, `g` for the top, and `q` to close. The pager
 starts at the top every time and renders Markdown and highlights fenced code with Rich. It follows tmux’s
@@ -34,6 +38,11 @@ sheet closes when that Vim process exits; manually opened sheets stay open.
 Closing the last work pane also removes the remaining help panes.
 
 ### Screen and client policy
+
+This automatic policy applies to enhanced mode. Vanilla mode opens help only on
+request: a tmux popup, a standalone pager, or an editor split/tab. With no `less`,
+plain references print using `cat`; use `cheat NAME` when your terminal cannot
+retain the printed output after a function-key widget returns.
 
 | Situation | Automatic behavior | Manual help |
 |---|---|---|
@@ -63,44 +72,77 @@ desktop users should use separate sessions if they need different layouts.
 
 ## Install / update
 
-Requires Python 3, tmux >=3.2, less, ripgrep and fzf. The installer sets up
-Rich in the checkout’s private `.venv` for Markdown rendering. Vim/Neovim integration
-has no plugin dependency. Bash and Zsh are supported; POSIX vi without Vim
-features is not.
+Run from your checkout (Bash 3.2 or newer):
 
 ```sh
-# macOS
-brew install tmux less ripgrep fzf python
-# Debian / Ubuntu
-sudo apt install tmux less ripgrep fzf python3 python3-venv
-
-# Run in your checkout; its location and username do not matter.
-python3 tests/check.py
-python3 install.py --dry-run
-python3 install.py
+bash install.sh
 ```
 
-Open a **new shell**. For an existing tmux server, load the added bindings:
+Use **arrow keys** to move, **Space** to select components, and **m** to switch
+between vanilla and enhanced mode. **Enter** shows the proposed changes;
+**y** applies them. **q**, Ctrl-C, or declining confirmation leaves configs alone.
+The next run restores the saved selection. Unchecking a component removes its
+managed integration. Installation applies the selected components individually.
+Selecting tmux or an editor also selects References; unchecking References
+unchecks those dependent integrations. The preview shows the complete selection.
+
+| Component | Vanilla dependencies | Enhanced additions |
+|---|---|---|
+| Shell search helpers | Bash, awk, grep, find | None; uses rg when available |
+| References / shell F1–F4 | Bash, cat; less optional | Python 3, less, private Rich environment |
+| Tmux keys / session picker | References, tmux >=3.2 | fzf |
+| Vim / Neovim references | References, Vim with scripting or Neovim | None |
+| Agent reference skill | Standard file utilities | None |
+
+The manager checks installed commands first. It reports whether Brew or apt-get
+exists, but never invokes either, uses sudo, or installs system packages.
+Use your machine's existing tools or leave unavailable components unchecked.
+Enhanced mode shows any required private `venv`/pip setup in the confirmation
+plan; that setup needs network access and a Python installation with `venv`.
+Vanilla never invokes Python, pip, Brew or apt.
+
+For an agent or a noninteractive terminal, preview a specific selection first:
 
 ```sh
-tmux source-file ~/.tmux.conf
+bash install.sh --components helpers,references,skill --mode vanilla --dry-run
+bash install.sh --components helpers,references,skill --mode vanilla --yes
+bash install.sh --uninstall --dry-run
+bash install.sh --uninstall --yes
 ```
 
-The installer adds marked source blocks, keeps timestamped backups under
-`~/.local/state/shell-kit/backups`, and is safe to rerun. It disables the old
-`CheatsheetAuto` Vim autocmd group while leaving its definition in your vimrc.
-It adds an init file for Neovim when one doesn't exist. Existing unrelated
-aliases/functions win over helpers with the same name.
+`--components` is the complete desired selection, not an additive package list.
+Required References are included automatically. Omitting other previously
+selected components removes them. `--yes` explicitly approves
+the displayed plan; without it, applying requires a terminal confirmation.
+`--dry-run` does not change the checkout or installed configuration.
 
-`python3 install.py --uninstall` removes only the managed source blocks and
-matching links. Restart shells/editors and the tmux server when convenient to
-clear already-loaded functions, hooks and bindings; do not kill a live server
-with work you want to preserve. Original configuration backups remain available.
+Managed source blocks preserve the surrounding configuration, dotfile symlinks,
+and permissions. The installer checks all blocks for malformed markers and
+validates destinations before changing configs. Backups and a `files.tsv` index
+are kept in `~/.local/state/shell-kit/backups/install.*`; the index maps each
+numbered backup to the original target path. Do not share these private backups.
+Unexpected write failures can leave some components applied; retain the reported
+backups, correct the filesystem problem, and rerun the same selection.
+
+The manager respects `$ZDOTDIR`, `$XDG_CONFIG_HOME` for Neovim/tmux, an existing
+`~/.vim/vimrc`, and Bash's active login profile. It records managed paths so a
+later uninstall can remove its blocks even after config locations change.
+Unrelated conflicting files/links are preserved and reported. Protected optional
+skill discovery directories are skipped. Existing aliases and functions win.
+
+Open a **new shell/editor** after saving. In a running tmux server, source the
+active tmux configuration to load added bindings. Removing a component does not
+unbind keys already loaded in a running shell/editor/server: they clear on its
+next restart. Never kill a live server containing work just to refresh bindings.
+
+The checkout stays in place, linked from `~/.local/share/shell-kit`. Update it
+there, then rerun the manager. A previous `install.py` installation is recognized;
+the new Bash installer replaces that installer and does not need it to migrate.
 
 ### Configure remote clients locally
 
-No machine names, addresses, SSH keys or network assumptions are in this repo.
-`~/.config/shell-kit/clients.json` is an initially empty, **untracked** mapping
+Enhanced mode only: no machine names, addresses, SSH keys or network assumptions
+are in this repo. `~/.config/shell-kit/clients.json` is an optional, **untracked** mapping
 from SSH source address to `macbook`, `desktop` or `phone`. You can add the
 current client without hardcoding an address in any shared file:
 
@@ -110,7 +152,8 @@ python3 - <<'PY'
 import json, os
 from pathlib import Path
 path = Path.home() / '.config/shell-kit/clients.json'
-data = json.loads(path.read_text())
+path.parent.mkdir(parents=True, exist_ok=True)
+data = json.loads(path.read_text()) if path.exists() else {}
 data[os.environ['SSH_CONNECTION'].split()[0]] = 'macbook'
 path.write_text(json.dumps(data, indent=2) + '\n')
 PY
@@ -152,8 +195,9 @@ td                      # detach without stopping work
 than guessing which dotfiles are active. It does not evaluate file contents.
 Do not share its output without checking for sensitive values in your own
 aliases. The search helpers treat their terms literally; raw `rg` remains
-available for regular expressions. `sfind` follows ripgrep's normal ignore
-rules; `dfind` traverses directories except `.git` and does not follow symlinks.
+available for regular expressions. `sfind` uses ripgrep and its normal ignore
+rules when available; its standard grep fallback searches hidden and ignored
+files too, so start from a specific directory; `dfind` traverses directories except `.git` and does not follow symlinks.
 
 The `legacy/` directory preserves reviewed, portable existing Python utilities
 and their tests. Machine-specific fleet wrappers and whole dotfiles stay on
@@ -183,6 +227,23 @@ keyboard input or create an extra pane. Phone profiles don't auto-open help.
 
 ## Verify
 
+Installer checks use Python for the test harness, not for installation:
+
+```sh
+python3 -B tests/install_check.py
+python3 -B tests/install_keys.py
+```
+
+Vanilla integration checks additionally need tmux, less and an editor:
+
+```sh
+python3 -B tests/shell_keys.py vanilla
+python3 -B tests/pty_check.py vanilla
+```
+
+The existing enhanced checks additionally need tmux, fzf, less, an editor, and
+the private Rich environment prepared through the enhanced installation option:
+
 ```sh
 python3 tests/render_check.py
 python3 tests/check.py
@@ -192,6 +253,10 @@ python3 -m unittest discover -s legacy/homelab-shell/scripts -p 'test_*.py'
 ```
 
 Checks use a temporary HOME and isolated tmux socket, never the live server.
+Use `SHELL_KIT_TEST_BASH=/path/to/bash` for installer/selector checks, and put
+that Bash binary first in PATH to exercise its function-key bindings.
+On Bash 3.2, F1-F4 use internal Ctrl-X1 through Ctrl-X4 Readline macros to avoid
+that version's limit on long `bind -x` key sequences.
 Reference sources: [tmux manual](https://man.openbsd.org/tmux.1),
 [Vim help](https://vimhelp.org/), and
 [ripgrep guide](https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md).
