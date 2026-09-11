@@ -9,7 +9,8 @@ if result.returncode:
     print('No sessions yet. Create one with: tn NAME')
     sys.exit(0)
 try:
-    chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=Enter: attach / switch     Esc: cancel     Create: tn NAME', '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap'], input=result.stdout, text=True, stdout=sp.PIPE)
+    spacing = ['--gap=1', '--padding=1', '--border-label= Sheila’s sessions '] if '--gap' in sp.check_output(['fzf', '--help'], text=True) else []
+    chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=Enter: attach / switch     Esc: cancel     Create: tn NAME', '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap', *spacing], input=result.stdout, text=True, stdout=sp.PIPE)
 except FileNotFoundError:
     print('Install fzf for the session picker. Sessions:\n' + result.stdout)
     sys.exit(1)
