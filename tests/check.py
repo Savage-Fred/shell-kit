@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         capture = ''
         for _ in range(100):
             capture = tm('capture-pane', '-e', '-p', '-t', help_id)
-            if 'focus pane' in capture:
+            if 'focus pane' in capture and 'q/F1-F4 close' in capture:
                 break
             time.sleep(.02)
         assert 'q/F1-F4 close' in capture, 'pager footer lost its close instructions'
