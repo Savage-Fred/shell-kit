@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Literal queries through standard Unix tools. No package manager needed.
+set -euo pipefail
+mode=${1:-}; shift || :
+export SHELL_KIT_QUERY=${1:-}
+case $mode in
+    aliases)
+        awk '
+            function flush() {
+                q=tolower(ENVIRON["SHELL_KIT_QUERY"])
+                if (name != "" && (q == "" || (length(q)==1 ? index(tolower(name),q)==1 : index(tolower(body),q)>0)))
+                    printf "\n%s\n%s", name, body
+            }
+            /^(alias[ \t]+)?[a-zA-Z0-9_.-]+(=|[ \t]*\(\))|^function[ \t]+/ {
+                flush(); name=$0; sub(/^(alias|function)[ \t]+/, "", name)
+                sub(/[= \t(].*$/, "", name); body=""
+            }
+            {body=body $0 "\n"}
+            END {flush()}
+        ' ;;
+    sfind|dfind)
+        [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { printf 'Usage: %s TEXT [DIR]\n' "$mode" >&2; exit 2; }
+        root=$(cd -- "${2:-.}" && pwd -P)
+        if [ "$mode" = sfind ]; then
+            if command -v rg >/dev/null 2>&1; then
+                exec rg --fixed-strings --line-number --with-filename --context 1 --color=auto -- "$1" "$root"
+            fi
+            exec grep -r -n -H -F -C 1 -- "$1" "$root"
+        fi
+        find "$root" -type d -name .git -prune -o -type d -print | awk '
+            {name=$0; sub(/^.*\//,"",name); if (index(tolower(name),tolower(ENVIRON["SHELL_KIT_QUERY"]))) print}
+        ' ;;
+    pfind)
+        [ "$#" = 2 ] || { printf 'Usage: pfind TEXT FILE\n' >&2; exit 2; }
+        # Redirect input so a filename such as x=y cannot become an awk assignment.
+        awk '
+            /^[[:space:]]*$/ {if (emitting) print ""; emitting=0; next}
+            index($0,ENVIRON["SHELL_KIT_QUERY"]) || emitting {emitting=1; print NR ": " $0}
+        ' < "$2" ;;
+    *) printf 'Use aliases, sfind, dfind or pfind.\n' >&2; exit 2 ;;
+esac

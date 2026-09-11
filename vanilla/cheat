@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Plain references: no Python, rendering library, or automatic layout changes.
+set -euo pipefail
+ROOT="$HOME/.local/share/shell-kit"
+action=${1:-list}
+case $action in
+    list) printf 'Sheets:'; for file in "$ROOT"/sheets/*.md; do name=${file##*/}; printf ' %s' "${name%.md}"; done; printf '\n'; exit ;;
+    profile) printf 'phone\n'; exit ;; # Manual help only in vanilla mode.
+    register|attach|cleanup|close-owner|close|auto) exit 0 ;;
+    auto-enabled) exit 1 ;;
+    view|open|edit) topic=${2:?Supply a reference name} ;;
+    *) topic=$action ;;
+esac
+case $topic in ''|*[!a-zA-Z0-9_-]*) printf 'Invalid reference name\n' >&2; exit 1;; esac
+file="$ROOT/sheets/$topic.md"
+[ -f "$file" ] || { printf 'Unknown reference: %s\n' "$topic" >&2; exit 1; }
+if [ "$action" = edit ]; then
+    # EDITOR is an executable name/path. Flags belong in an editor wrapper.
+    exec "${EDITOR:-vi}" "$file"
+elif [ -n "${TMUX-}" ] && [ "$action" != view ]; then
+    # printf %q produces Bash quoting; invoke Bash explicitly, even under Zsh.
+    printf -v command 'exec bash %q view %q' "$HOME/.local/share/shell-kit-runtime/bin/cheat" "$topic"
+    exec tmux display-popup -E -w 80% -h 80% "$command"
+elif command -v less >/dev/null 2>&1 && [ -t 1 ]; then
+    unset LESS LESSOPEN
+    export LESSHISTFILE=- LESSKEY="$ROOT/integrations/less.keys"
+    exec less -R -i -+F -+X +g -P 'Sheila | q/F1-F4 close | arrows scroll | / search' "$file"
+else
+    cat "$file"
+fi

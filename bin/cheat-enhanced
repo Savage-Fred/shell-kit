@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Editable references and tmux sidebars. Rich Markdown + less for display."""
+from datetime import date
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess as sp
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+os.environ['PATH'] = str(Path.home() / '.local/share/shell-kit-runtime/bin') + os.pathsep + os.environ.get('PATH', '')
+STATE = Path.home() / '.local/state/shell-kit'
+TOPICS = lambda: sorted(p.stem for p in (ROOT / 'sheets').glob('*.md'))
+
+def run(*args, check=True):
+    return sp.run(args, text=True, stdout=sp.PIPE, stderr=sp.PIPE, check=check).stdout.strip()
+
+def tm(*args, check=True):
+    return run('tmux', *args, check=check)
+
+def profile():
+    if os.environ.get('TMUX'):
+        active = tm('show-options', '-qv', '-t', os.environ.get('TMUX_PANE', ''), '@shell_kit_client', check=False)
+        if active:
+            return active
+    explicit = os.environ.get('CHEAT_CLIENT', '')
+    if explicit:
+        return explicit
+    ssh = os.environ.get('SSH_CONNECTION', '').split()
+    config = Path.home() / '.config/shell-kit/clients.json'
+    clients = json.loads(config.read_text()) if config.exists() else {}
+    if ssh:
+        return clients.get(ssh[0], 'phone')
+    return 'macbook' if sys.platform == 'darwin' else 'desktop'
+
+def client_file(tty):
+    return STATE / ('client-' + hashlib.sha256(tty.encode()).hexdigest())
+
+def register():
+    STATE.mkdir(parents=True, exist_ok=True)
+    try:
+        tty = os.ttyname(sys.stdin.fileno())
+    except OSError:
+        return
+    client_file(tty).write_text(profile())
+
+def panes(target):
+    rows = tm('list-panes', '-t', target, '-F', '#{pane_id}|#{@shell_kit}|#{@shell_kit_owner}|#{@shell_kit_auto}|#{pane_height}')
+    return [r.split('|') for r in rows.splitlines()]
+
+def close(target, topic=None, owner=None, automatic=False):
+    for pid, name, who, auto, _ in panes(target):
+        if name and (topic is None or name == topic) and (owner is None or who == owner) and (not automatic or auto == '1'):
+            tm('kill-pane', '-t', pid)
+
+def sidebar(topic, target, action='toggle', owner='', automatic=False):
+    rows = panes(target)
+    existing = [r for r in rows if r[1] == topic]
+    if existing:
+        if action in ('toggle', 'close'):
+            close(target, topic)
+        return
+    if action == 'close':
+        return
+    width, height = map(int, tm('display-message', '-p', '-t', target, '#{window_width} #{window_height}').split())
+    sheets = [r for r in rows if r[1]]
+    overrides = [f'{name}={os.environ[name]}' for name in ('CHEAT_THEME', 'CHEAT_TIPS') if name in os.environ]
+    command = shlex.join(['env', *overrides, str(ROOT / 'bin/cheat'), 'view', topic])
+    if width < 120 or height < 24 or (sheets and max(int(r[4]) for r in sheets) < 14):
+        if automatic:
+            return
+        # A real window follows terminal resizes; a popup keeps its old geometry.
+        session = tm('display-message', '-p', '-t', target, '#{session_id}')
+        pid = tm('new-window', '-P', '-F', '#{pane_id}', '-t', session + ':',
+                 '-n', 'help:' + topic, command)
+    else:
+        if sheets:
+            anchor = max(sheets, key=lambda r: int(r[4]))[0]
+            split = ['-v', '-t', anchor]
+        else:
+            split = ['-fhb', '-l', str(min(80, width * 2 // 5)), '-t', target]
+        pid = tm('split-window', '-dP', '-F', '#{pane_id}', *split, command)
+    for key, value in [('shell_kit', topic), ('shell_kit_owner', owner), ('shell_kit_auto', '1' if automatic else '0')]:
+        tm('set-option', '-p', '-t', pid, '@' + key, value)
+    tm('set-option', '-p', '-t', pid, 'remain-on-exit', 'off')
+    tm('select-pane', '-t', pid, '-T', 'Help: ' + topic)
+
+def view(topic):
+    if not shutil.which('less'):
+        raise RuntimeError('Install less, then retry (see README).')
+    source = (ROOT / 'sheets' / (topic + '.md')).read_text()
+    if topic == 'tmux' and os.environ.get('CHEAT_TIPS', '1') != '0':
+        source = source.replace('\n', '\n\n> ' + tip() + '\n', 1)
+    theme = os.environ.get('CHEAT_THEME', '')
+    if not theme and os.environ.get('TMUX'):
+        theme = tm('display-message', '-p', '#{client_theme}', check=False)
+    if theme not in ('light', 'dark'):
+        theme = 'light' if os.environ.get('COLORFGBG', '').split(';')[-1] in ('7', '15') else 'dark'
+    python = ROOT / '.venv/bin/python'
+    content = sp.check_output([str(python) if python.exists() else sys.executable,
+                              str(ROOT / 'bin/render-sheet'),
+                              str(min(80, shutil.get_terminal_size().columns)), theme], input=source.encode())
+    # A private temporary file resets position; no remembered editor cursor.
+    with tempfile.TemporaryDirectory(prefix='shell-kit-') as tmp:
+        path = Path(tmp) / 'sheet'
+        path.write_bytes(content)
+        env = os.environ.copy()
+        env.pop('LESS', None)
+        env.pop('LESSOPEN', None)
+        env['LESSHISTFILE'] = '-'
+        key = ROOT / 'integrations/less.keys'
+        if key.exists():
+            env['LESSKEY'] = str(key)
+        sp.run(['less', '-R', '-i', '-+F', '-+X', '+g', '-P', 'Sheila | q/F1-F4 close | ↑↓ scroll | / search | g top', str(path)], env=env, check=False)
+
+def tip():
+    lines = [line.rstrip('\\').strip().replace('`', '').replace('Prefix', 'Ctrl-b') for line in (ROOT / 'sheets/tmux.md').read_text().splitlines() if line.startswith('`Prefix ')]
+    return 'Sheila: ' + lines[date.today().toordinal() % len(lines)] if lines else 'Sheila: Ctrl-b ? lists tmux shortcuts.'
+
+
+def main(args):
+    action = args.pop(0) if args else 'list'
+    if action == 'list':
+        print('Sheets: ' + ', '.join(TOPICS()) + '\ncheat TOPIC | cheat edit TOPIC | cheat profile')
+        return
+    if action == 'tip':
+        print(tip())
+        return
+    if action == 'profile':
+        print(profile())
+        return
+    if action == 'register':
+        if not os.environ.get('TMUX'):
+            register()
+        return
+    if action == 'auto-enabled':
+        sys.exit(0 if profile() in ('macbook', 'desktop') and shutil.get_terminal_size().columns >= 120 else 1)
+    if action == 'attach':
+        if len(args) != 2:
+            return  # Detached creation has no client; its later attach sets policy.
+        target, tty = args
+        record = client_file(tty)
+        kind = record.read_text().strip() if record.exists() else 'phone'
+        with locked():
+            if tty not in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
+                return  # Ignore callbacks after their client left or pane disappeared.
+            try:
+                tm('set-option', '-t', target, '@shell_kit_client', kind)
+                if kind not in ('desktop', 'macbook'):
+                    close(target, automatic=True)
+                else:
+                    sidebar('tmux', target, 'open', automatic=True)
+            except sp.CalledProcessError:
+                # The client or target can disappear after the first check.
+                if tty in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
+                    raise
+        return
+    if action == 'cleanup':
+        with locked():
+            try:
+                rows = panes(args[0])
+            except sp.CalledProcessError:
+                return  # The last pane may have already removed this window.
+            if rows and all(r[1] for r in rows):
+                close(args[0])
+        return
+    if action == 'close-owner':
+        if os.environ.get('TMUX'):
+            with locked():
+                close(os.environ['TMUX_PANE'], owner=args[0])
+        return
+    topic = args.pop(0) if action in ('view', 'edit', 'open', 'close', 'auto') else action
+    if topic not in TOPICS():
+        raise RuntimeError('Unknown sheet: ' + topic)
+    if action == 'edit':
+        os.execvp((shlex.split(os.environ.get('EDITOR', 'vim')) or ['vim'])[0],
+                  shlex.split(os.environ.get('EDITOR', 'vim')) + [str(ROOT / 'sheets' / (topic + '.md'))])
+    elif action == 'close' and not os.environ.get('TMUX'):
+        return
+    elif action == 'view' or not os.environ.get('TMUX'):
+        view(topic)
+    else:
+        target = args[0] if args else os.environ['TMUX_PANE']
+        owner = args[1] if len(args) > 1 else ''
+        with locked():
+            sidebar(topic, target, 'open' if action == 'auto' else action if action in ('open', 'close') else 'toggle', owner, action == 'auto')
+
+def locked():
+    STATE.mkdir(parents=True, exist_ok=True)
+    handle = (STATE / 'panes.lock').open('w')
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    return handle
+
+if __name__ == '__main__':
+    try:
+        main(sys.argv[1:])
+    except (RuntimeError, sp.CalledProcessError, OSError, ValueError, KeyError) as exc:
+        print('cheat: ' + str(exc), file=sys.stderr)
+        sys.exit(1)

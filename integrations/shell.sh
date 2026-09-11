@@ -1,7 +1,13 @@
 # Source from interactive Bash or Zsh. Existing user definitions win.
+# shellcheck shell=bash
 case $- in *i*) ;; *) return ;; esac
 export SHELL_KIT_ROOT="$HOME/.local/share/shell-kit"
-case ":$PATH:" in *":$SHELL_KIT_ROOT/bin:"*) ;; *) export PATH="$SHELL_KIT_ROOT/bin:$HOME/.local/share/shell-kit-runtime/bin:$PATH" ;; esac
+case ":$PATH:" in *":$HOME/.local/share/shell-kit-runtime/bin:"*) ;; *) export PATH="$HOME/.local/share/shell-kit-runtime/bin:$PATH" ;; esac
+if [ ! -f "$HOME/.local/state/shell-kit/install.tsv" ]; then
+    # Keep an existing installation usable until the owner runs the new manager.
+    case ":$PATH:" in *":$SHELL_KIT_ROOT/bin:"*) ;; *) export PATH="$SHELL_KIT_ROOT/bin:$PATH" ;; esac
+fi
+case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' helpers '*)
 
 if ! type aliases >/dev/null 2>&1; then
     function aliases {
@@ -17,6 +23,8 @@ fi
 if ! type pfind >/dev/null 2>&1; then
     function pfind { command shell-kit-search pfind "$@"; }
 fi
+;; esac
+case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' tmux '*)
 if ! type tn >/dev/null 2>&1; then
     function tn {
         if [ -n "${TMUX-}" ]; then
@@ -33,11 +41,28 @@ fi
 if ! type td >/dev/null 2>&1; then
     function td { command tmux detach-client; }
 fi
+;; esac
+case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' references '*)
 function _sk_tmux { command cheat tmux; }
 function _sk_vim { command cheat vim; }
 function _sk_grep { command cheat grep; }
 function _sk_aliases { command cheat aliases; }
 if [ -n "${BASH_VERSION-}" ]; then
+  if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    # Bash 3.2 bind -x cannot execute the longer terminal F-key sequences.
+    bind -x '"\C-x1":_sk_tmux'
+    bind -x '"\C-x2":_sk_vim'
+    bind -x '"\C-x3":_sk_grep'
+    bind -x '"\C-x4":_sk_aliases'
+    bind '"\eOP":"\C-x1"'
+    bind '"\eOQ":"\C-x2"'
+    bind '"\eOR":"\C-x3"'
+    bind '"\eOS":"\C-x4"'
+    bind '"\e[11~":"\C-x1"'
+    bind '"\e[12~":"\C-x2"'
+    bind '"\e[13~":"\C-x3"'
+    bind '"\e[14~":"\C-x4"'
+  else
     bind -x '"\eOP":_sk_tmux'
     bind -x '"\eOQ":_sk_vim'
     bind -x '"\eOR":_sk_grep'
@@ -46,6 +71,7 @@ if [ -n "${BASH_VERSION-}" ]; then
     bind -x '"\e[12~":_sk_vim'
     bind -x '"\e[13~":_sk_grep'
     bind -x '"\e[14~":_sk_aliases'
+  fi
 else
     zle -N _sk_tmux
     zle -N _sk_vim
@@ -64,3 +90,4 @@ else
     unset _sk_map
 fi
 command cheat register
+;; esac
