@@ -16,6 +16,11 @@ import termios
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+MODE = sys.argv[1] if len(sys.argv) > 1 else 'enhanced'
+assert MODE in ('vanilla', 'enhanced')
+if MODE == 'enhanced':
+    assert (ROOT / '.venv/bin/python').exists(), 'Prepare enhanced dependencies first (see README)'
+    sp.run([str(ROOT / '.venv/bin/python'), '-c', 'import rich'], check=True)
 
 
 def main():
@@ -29,10 +34,11 @@ def main():
         for name in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV', 'ZDOTDIR',
                      'SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY'):
             env.pop(name, None)
-        sp.run([sys.executable, str(ROOT / 'install.py')], env=env,
+        sp.run(['bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', MODE, '--yes'], env=env,
                check=True, stdout=sp.DEVNULL)
         sock = str(home / 'tmux.sock')
         clients = []
+        terminal_output = bytearray()
 
         def tm(*args, check=True):
             return sp.run(['tmux', '-S', sock, *args], env=env, text=True,
@@ -42,8 +48,10 @@ def main():
             for _, fd in clients:
                 while select.select([fd], [], [], 0)[0]:
                     try:
-                        if not os.read(fd, 65536):
+                        block = os.read(fd, 65536)
+                        if not block:
                             break
+                        terminal_output.extend(block)
                     except OSError:
                         break
 
@@ -60,10 +68,11 @@ def main():
             raise AssertionError(label + '\nPanes: ' + tm(
                 'list-panes', '-a', '-F',
                 '#{pane_id}|#{@shell_kit}|#{pane_current_command}|#{pane_active}',
-                check=False) + '\nWork terminal output:\n' + screens)
+                check=False) + '\nWork terminal output:\n' + screens +
+                '\nClient terminal output:\n' + repr(bytes(terminal_output[-3000:])))
 
         def client(profile, create=False):
-            command = [str(ROOT / 'bin/cheat'), 'register']
+            command = [str(home / '.local/share/shell-kit-runtime/bin/cheat'), 'register']
             session = ['new-session', '-s', 'pty', '/bin/bash --noprofile --norc'] if create else ['attach-session', '-t', 'pty']
             launch = shlex.join(command) + '; exec ' + shlex.join(
                 ['tmux', '-S', sock, '-f', str(home / '.tmux.conf'), *session])
@@ -86,6 +95,24 @@ def main():
 
         try:
             fd = client('desktop', create=True)
+            if MODE == 'vanilla':
+                until(lambda: len(rows()) == 1, 'vanilla shell did not start')
+                until(lambda: b'bash-' in terminal_output, 'vanilla shell prompt did not appear')
+                assert topics() == [], 'vanilla should not open automatic help'
+                result = home / 'preserved'
+                os.write(fd, ('printf intact > ' + shlex.quote(str(result))).encode())
+                until(lambda: str(result) in tm('capture-pane', '-p'), 'pending command did not reach shell')
+                os.write(fd, b'\x1bOP')
+                until(lambda: b'stay oriented' in terminal_output, 'vanilla tmux popup did not open')
+                terminal_output.clear()
+                os.write(fd, b'\x1bOP')
+                until(lambda: str(result).encode() in terminal_output, 'popup did not restore work screen')
+                os.write(fd, b'\r')
+                until(result.exists, 'popup toggle did not return to pending shell input')
+                assert result.read_text() == 'intact'
+                assert len(rows()) == 1, 'vanilla popup left a sidebar behind'
+                print('PASS: vanilla manual tmux popup, F1 close and pending input preservation')
+                return
             until(lambda: topics() == ['tmux'], 'desktop attach did not auto-open tmux help')
             work = next(row[0] for row in rows() if not row[1])
             assert next(row[0] for row in rows() if row[2] == '1') == work, 'startup stole focus'

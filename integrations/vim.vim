@@ -2,14 +2,19 @@
 if exists('g:loaded_shell_kit') | finish | endif
 let g:loaded_shell_kit = 1
 let s:root = expand('~/.local/share/shell-kit')
+let s:command = s:root . '/bin/cheat'
 let s:owner = 'vim-' . getpid()
+" Keep the predecessor's automatic sidebar disabled after installer migration.
+augroup CheatsheetAuto
+  autocmd!
+augroup END
 
 function! ShellKitSheet(topic, auto) abort
-  if a:auto && ((empty($TMUX) && &columns < 120) || index(['desktop', 'macbook'], trim(system(shellescape(s:root . '/bin/cheat') . ' profile'))) < 0)
+  if a:auto && ((empty($TMUX) && &columns < 120) || index(['desktop', 'macbook'], trim(system(shellescape(s:command) . ' profile'))) < 0)
     return
   endif
   if !empty($TMUX)
-    let cmd = shellescape(s:root . '/bin/cheat') . ' ' . (a:auto ? 'auto ' : '') . a:topic . ' ' . shellescape($TMUX_PANE) . ' ' . shellescape(s:owner)
+    let cmd = shellescape(s:command) . ' ' . (a:auto ? 'auto ' : '') . a:topic . ' ' . shellescape($TMUX_PANE) . ' ' . shellescape(s:owner)
     call system(cmd)
     return
   endif
@@ -65,5 +70,5 @@ augroup ShellKit
   autocmd!
   autocmd VimEnter * call ShellKitSheet('vim', 1)
   autocmd QuitPre * call ShellKitCleanup()
-  autocmd VimLeavePre * if !empty($TMUX) | call system(shellescape(s:root . '/bin/cheat') . ' close-owner ' . shellescape(s:owner)) | endif
+  autocmd VimLeavePre * if !empty($TMUX) | call system(shellescape(s:command) . ' close-owner ' . shellescape(s:owner)) | endif
 augroup END

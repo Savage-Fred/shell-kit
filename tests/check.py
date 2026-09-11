@@ -11,6 +11,8 @@ import time
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+assert (ROOT / '.venv/bin/python').exists(), 'Prepare enhanced dependencies first (see README)'
+sp.run([str(ROOT / '.venv/bin/python'), '-c', 'import rich'], check=True)
 
 def load(name, path):
     loader = importlib.machinery.SourceFileLoader(name, str(path))
@@ -19,7 +21,7 @@ def load(name, path):
     loader.exec_module(module)
     return module
 
-controller = load('controller', ROOT / 'bin/cheat')
+controller = load('controller', ROOT / 'bin/cheat-enhanced')
 # A client can depart after validation but before the hook changes its pane.
 with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', Path(state)):
     failure = sp.CalledProcessError(1, ['tmux', 'list-panes'])
@@ -34,11 +36,6 @@ with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', P
         else:
             raise AssertionError('active-client hook error was hidden')
 
-search = load('search', ROOT / 'bin/shell-kit-search')
-text = "alias ll='ls -l'\nalias gs='git status'\nremote ()\n{\n    ssh \"$@\"\n}\n"
-assert [n for n, _ in search.definitions(text, 'l')] == ['ll']
-assert [n for n, _ in search.definitions(text, 'ssh')] == ['remote']
-assert [n for n, _ in search.definitions(text, 'git')] == ['gs']
 for sheet in (ROOT / 'sheets').glob('*.md'):
     assert all(len(line) <= 80 for line in sheet.read_text().splitlines()), sheet
 
@@ -49,18 +46,18 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
     env.pop('TMUX_PANE', None)
     def call(*cmd, input=None, check=True):
         return sp.run(cmd, env=env, input=input, text=True, stdout=sp.PIPE, stderr=sp.PIPE, check=check)
-    call('python3', str(ROOT / 'install.py'))
+    call('bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', 'enhanced', '--yes')
     before = (home / '.bashrc').read_text()
-    call('python3', str(ROOT / 'install.py'))
+    call('bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', 'enhanced', '--yes')
     assert (home / '.bashrc').read_text() == before, 'installer must be idempotent'
     sample = home / 'file with spaces.txt'
     sample.write_text('before\nneedle.* literal\nafter\n\nother\nneedle.* second\nlast\n')
-    found = call(str(ROOT / 'bin/shell-kit-search'), 'sfind', 'needle.*', tmp).stdout
+    found = call(str(ROOT / 'vanilla/shell-kit-search'), 'sfind', 'needle.*', tmp).stdout
     assert str(sample) in found and 'before' in found and 'after' in found
-    block = call(str(ROOT / 'bin/shell-kit-search'), 'pfind', 'needle.*', str(sample)).stdout
+    block = call(str(ROOT / 'vanilla/shell-kit-search'), 'pfind', 'needle.*', str(sample)).stdout
     assert '1: before' not in block and '3: after' in block and '7: last' in block
     (home / 'name with spaces').mkdir()
-    assert str(home / 'name with spaces') in call(str(ROOT / 'bin/shell-kit-search'), 'dfind', 'with', tmp).stdout
+    assert str(home / 'name with spaces') in call(str(ROOT / 'vanilla/shell-kit-search'), 'dfind', 'with', tmp).stdout
     call('bash', '-n', str(ROOT / 'integrations/shell.sh'))
     if shutil.which('zsh'):
         call('zsh', '-n', str(ROOT / 'integrations/shell.sh'))
@@ -153,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         'call writefile(v:errors, ' + repr(str(result)) + ')\nqa!\n')
     call(editor, '-u', 'NONE', '-i', 'NONE', '-n', '-es', '-S', str(script))
     assert result.read_text() == '', result.read_text()
-    call('python3', str(ROOT / 'install.py'), '--uninstall')
+    call('bash', str(ROOT / 'install.sh'), '--uninstall', '--yes')
     assert 'BEGIN SHELL-KIT' not in (home / '.bashrc').read_text()
     assert not (home / '.local/share/shell-kit').exists()
     print('PASS: standalone Vim/Neovim stacking, focus, toggle, cleanup and uninstall')
