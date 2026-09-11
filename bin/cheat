@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Editable references and tmux sidebars. Python stdlib; bat + less for display."""
+from datetime import date
 import fcntl
 import hashlib
 import json
@@ -104,10 +105,18 @@ def view(topic):
             env['LESSKEY'] = str(key)
         sp.run(['less', '-R', '-i', '-+F', '-+X', '+g', '-P', f'Sheila: {topic} | arrows/PgDn scroll / search g top q or F1-F4 close', str(path)], env=env, check=False)
 
+def tip():
+    lines = [line.replace('`', '').replace('Prefix', 'Ctrl-b') for line in (ROOT / 'sheets/tmux.md').read_text().splitlines() if line.startswith('`Prefix ')]
+    return 'Sheila: ' + lines[date.today().toordinal() % len(lines)] if lines else 'Sheila: Ctrl-b ? lists tmux shortcuts.'
+
+
 def main(args):
     action = args.pop(0) if args else 'list'
     if action == 'list':
         print('Sheets: ' + ', '.join(TOPICS()) + '\ncheat TOPIC | cheat edit TOPIC | cheat profile')
+        return
+    if action == 'tip':
+        print(tip())
         return
     if action == 'profile':
         print(profile())
@@ -128,6 +137,10 @@ def main(args):
                 close(target, automatic=True)
             else:
                 sidebar('tmux', target, 'open', automatic=True)
+                today = date.today().isoformat()
+                if os.environ.get('CHEAT_TIPS', '1') != '0' and tm('show-options', '-qv', '-t', target, '@shell_kit_tip_date', check=False) != today:
+                    tm('display-message', '-d', '7000', '-t', target, tip())
+                    tm('set-option', '-t', target, '@shell_kit_tip_date', today)
         return
     if action == 'cleanup':
         with locked():
