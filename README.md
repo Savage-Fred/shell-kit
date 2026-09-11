@@ -22,7 +22,8 @@ The command equivalents always work: `cheat tmux`, `cheat vim`, `cheat grep`,
 In tmux, sheets stack on the **left**, work stays on the **right**, and opening
 help keeps your typing focus. Move into help with `Ctrl-b ←`; use arrows,
 PageUp/PageDown, `/` to search, `g` for the top, and `q` to close. The pager
-starts at the top every time and highlights Markdown and fenced code with bat.
+starts at the top every time and renders Markdown and highlights fenced code with Rich. It follows tmux’s
+light/dark client theme; set `CHEAT_THEME=light` or `dark` to override.
 Links remain visible and can be opened using your terminal's link gesture.
 The three-question tmux checklist is at the end of its sheet.
 
@@ -39,13 +40,15 @@ Closing the last work pane also removes the remaining help panes.
 | Local desktop / Mac | tmux on attach, Vim on editor start | Left column |
 | Known `macbook` remote profile | Same | Left column |
 | `phone` or unidentified SSH client | Off | Available |
-| Under 120 columns or 24 rows in tmux | Off | Temporary popup |
+| Under 120 columns or 24 rows in tmux | Off | Temporary tmux window |
 | Narrow standalone Vim | Off | Temporary help tab |
 | Shell outside tmux | Off | Full-screen pager |
 
-The column uses up to 80 characters, or 40% of window width. Multiple sheets
+The column uses up to 80 characters, or 40% of window width. Rendered text
+is capped at 80 columns. The pager wraps when narrowed; reopen a sheet after
+widening it to reflow its text for the new width. Multiple sheets
 split the existing help column; work-pane splits stay intact. If another sheet
-would be too short to read, manual help uses a popup instead.
+would be too short to read, manual help uses a temporary tmux window instead.
 
 **Recommendation:** keep one tmux session per task; use windows for different
 activities and work-pane splits for closely related commands. Avoid cycling
@@ -60,15 +63,16 @@ desktop users should use separate sessions if they need different layouts.
 
 ## Install / update
 
-Requires Python 3, tmux >=3.2, bat, less, ripgrep and fzf. Vim/Neovim integration
+Requires Python 3, tmux >=3.2, less, ripgrep and fzf. The installer sets up
+Rich in the checkout’s private `.venv` for Markdown rendering. Vim/Neovim integration
 has no plugin dependency. Bash and Zsh are supported; POSIX vi without Vim
 features is not.
 
 ```sh
 # macOS
-brew install tmux bat less ripgrep fzf python
-# Debian / Ubuntu (bat's executable is often batcat)
-sudo apt install tmux bat less ripgrep fzf python3
+brew install tmux less ripgrep fzf python
+# Debian / Ubuntu
+sudo apt install tmux less ripgrep fzf python3 python3-venv
 
 # Run in your checkout; its location and username do not matter.
 python3 tests/check.py
@@ -180,6 +184,7 @@ keyboard input or create an extra pane. Phone profiles don't auto-open help.
 ## Verify
 
 ```sh
+python3 tests/render_check.py
 python3 tests/check.py
 python3 tests/pty_check.py
 python3 tests/shell_keys.py

@@ -69,8 +69,18 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         call(str(ROOT / 'bin/tmenu'))
         env.pop('FZF_DEFAULT_OPTS')
         assert len(rows()) == 1, 'session picker cancellation changed panes'
+        tm('set-environment', '-g', 'CHEAT_THEME', 'dark')
+        env['CHEAT_THEME'] = 'light'
         cheat('tmux')
         assert len(rows()) == 2, rows()
+        help_id = next(r[0] for r in rows() if r[1])
+        capture = ''
+        for _ in range(100):
+            capture = tm('capture-pane', '-e', '-p', '-t', help_id)
+            if 'focus pane' in capture:
+                break
+            time.sleep(.02)
+        assert '\x1b[34m' in capture, 'caller light theme lost to dark server environment'
         assert [r[0] for r in rows() if r[3] == '1'] == [pane], 'opening stole focus'
         cheat('tmux')
         assert len(rows()) == 1, 'same toggle failed to close'
@@ -94,6 +104,15 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         assert 'shell-kit' in tm('list-keys', '-T', 'root', 'F1')
         cheat('close', 'tmux')
         assert len(rows()) == 2
+        tm('resize-window', '-t', pane, '-x', '90', '-y', '30')
+        cheat('grep')
+        assert len(tm('list-windows').splitlines()) == 2, 'narrow help needs its own resizable window'
+        help_pane = tm('display-message', '-p', '#{pane_id}')
+        assert help_pane != pane
+        tm('resize-window', '-t', help_pane, '-x', '155', '-y', '30')
+        assert tm('display-message', '-p', '-t', help_pane, '#{pane_width}') == '155'
+        cheat('grep', help_pane)
+        assert len(tm('list-windows').splitlines()) == 1, 'help toggle must restore work window'
         print('PASS: search, installer, shell syntax, tmux focus/stack/toggle/ownership/profile')
     finally:
         sp.run(['tmux', '-S', sock, 'kill-server'], env=env, stdout=sp.DEVNULL, stderr=sp.DEVNULL)

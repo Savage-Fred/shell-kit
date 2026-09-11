@@ -1,6 +1,6 @@
 # Search · useful answers quickly
 
-**F3** toggle this sheet · F1 tmux · F2 vim · F4 aliases
+**F3** toggle this sheet · F1 tmux · F2 vim · F4 aliases\
 Quote search text. Helpers below treat it as literal text, not regex.
 
 ## Reach first
@@ -30,8 +30,8 @@ rg -n -g '!vendor/**' -- 'TODO' .
 rg -n --hidden -g '!.git/**' -- 'TODO' .
 ```
 
-`rg` normally skips hidden, ignored and binary files.
-`--hidden` includes hidden files; `--no-ignore` includes ignored files.
+`rg` normally skips hidden, ignored and binary files.\
+`--hidden` includes hidden files; `--no-ignore` includes ignored files.\
 `--` ends options: search safely for text such as `'-n'`.
 
 ## Regex, when useful
@@ -54,6 +54,7 @@ rg --color=always -n -C 1 -- 'pattern' . | less -R
 In less: `/text` search · `n/N` next/previous · `g/G` top/bottom · `q` quit.
 
 [Official ripgrep guide][rg-guide]
+
 [rg-guide]: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md
 
 ## grep on machines without ripgrep

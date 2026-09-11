@@ -1,15 +1,15 @@
 # tmux · stay oriented
 
-**F1** toggle this sheet · F2 vim · F3 grep · F4 aliases
+**F1** toggle this sheet · F2 vim · F3 grep · F4 aliases\
 **Prefix = Ctrl-b**, release, then press the next key.
 
 ## Reach first
 
-`Prefix ← ↓ ↑ →` focus pane · `Prefix ;` previous pane
-`Prefix z` zoom/restore · `Prefix d` detach, keep work running
-`Prefix [` scroll/copy · `Prefix ]` paste tmux buffer
-`Prefix c` new window · `Prefix n/p` next/previous · `Prefix 0…9` jump
-`Prefix %` split left/right · `Prefix "` split top/bottom
+`Prefix ← ↓ ↑ →` focus pane · `Prefix ;` previous pane\
+`Prefix z` zoom/restore · `Prefix d` detach, keep work running\
+`Prefix [` scroll/copy · `Prefix ]` paste tmux buffer\
+`Prefix c` new window · `Prefix n/p` next/previous · `Prefix 0…9` jump\
+`Prefix %` split left/right · `Prefix "` split top/bottom\
 `Prefix ?` all bindings · `Prefix :` command prompt
 
 ## Copy and paste
@@ -37,8 +37,8 @@ td             # detach
 
 ## Small improvements
 
-`Prefix ,` rename window · `Prefix $` rename session
-`Prefix { / }` swap panes · `Prefix Space` cycle layouts
+`Prefix ,` rename window · `Prefix $` rename session\
+`Prefix { / }` swap panes · `Prefix Space` cycle layouts\
 `Prefix Ctrl-← ↓ ↑ →` resize · `Prefix !` pane to separate window
 
 Reload edits to your configuration:
@@ -47,7 +47,7 @@ Reload edits to your configuration:
 tmux source-file ~/.tmux.conf
 ```
 
-`exit` closes a shell pane; detaching preserves it.
+`exit` closes a shell pane; detaching preserves it.\
 [tmux manual](https://man.openbsd.org/tmux.1)
 
 ## Should I use tmux for this?

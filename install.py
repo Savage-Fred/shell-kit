@@ -58,10 +58,16 @@ def link(path, source):
 
 if not args.uninstall:
     missing = [c for c in ('python3', 'tmux', 'less', 'rg', 'fzf') if not shutil.which(c)]
-    if not (shutil.which('bat') or shutil.which('batcat')):
-        missing.append('bat')
     if missing:
         raise SystemExit('Missing dependencies: ' + ', '.join(missing) + '. See README.')
+if not args.uninstall:
+    renderer_python = ROOT / '.venv/bin/python'
+    if not renderer_python.exists():
+        print('Create private Markdown renderer environment')
+        if not args.dry_run:
+            subprocess.run([os.sys.executable, '-m', 'venv', str(renderer_python.parent.parent)], check=True)
+    if not args.dry_run and subprocess.run([str(renderer_python), '-c', 'import rich'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        subprocess.run([str(renderer_python), '-m', 'pip', 'install', '-q', '-r', str(ROOT / 'requirements.txt')], check=True)
 link(HOME / '.local/share/shell-kit', ROOT)
 for rc in ('.bashrc', '.zshrc'):
     block(HOME / rc, '[ -r "$HOME/.local/share/shell-kit/integrations/shell.sh" ] && . "$HOME/.local/share/shell-kit/integrations/shell.sh"')
