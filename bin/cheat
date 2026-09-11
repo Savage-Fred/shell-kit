@@ -150,11 +150,16 @@ def main(args):
         with locked():
             if tty not in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
                 return  # Ignore callbacks after their client left or pane disappeared.
-            tm('set-option', '-t', target, '@shell_kit_client', kind)
-            if kind not in ('desktop', 'macbook'):
-                close(target, automatic=True)
-            else:
-                sidebar('tmux', target, 'open', automatic=True)
+            try:
+                tm('set-option', '-t', target, '@shell_kit_client', kind)
+                if kind not in ('desktop', 'macbook'):
+                    close(target, automatic=True)
+                else:
+                    sidebar('tmux', target, 'open', automatic=True)
+            except sp.CalledProcessError:
+                # The client or target can disappear after the first check.
+                if tty in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
+                    raise
         return
     if action == 'cleanup':
         with locked():
