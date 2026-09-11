@@ -80,6 +80,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
             if 'focus pane' in capture:
                 break
             time.sleep(.02)
+        assert 'q/F1-F4 close' in capture, 'pager footer lost its close instructions'
         assert '\x1b[34m' in capture, 'caller light theme lost to dark server environment'
         assert [r[0] for r in rows() if r[3] == '1'] == [pane], 'opening stole focus'
         cheat('tmux')
