@@ -37,3 +37,9 @@ optional and any pip installation must be included in the approved plan.
   when touching integrations. Report which OS and Bash versions were exercised.
 - Do not weaken privacy, error handling, terminal cleanup, or meaningful checks
   to shorten the code. Do not add services, daemons or configuration frameworks.
+
+- `configs` belongs to Helpers. Its Bash/awk scanner must never evaluate/source
+  inspected files. Preserve unresolved markers and terminal-safe file links;
+  do not promise a static scan reproduces arbitrary shell execution. Run
+  `python3 -B tests/configs_check.py` for scanner changes (also accepts
+  `SHELL_KIT_TEST_BASH`). Shell metadata comes from the interactive wrapper.

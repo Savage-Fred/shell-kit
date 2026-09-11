@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     minimal.mkdir()
     for name in ('bash', 'awk', 'cat', 'cmp', 'cp', 'dirname', 'ln', 'mkdir',
                  'mktemp', 'mv', 'readlink', 'rm', 'stty', 'tail', 'chmod',
-                 'grep', 'find', 'sort'):
+                 'grep', 'find', 'sort', 'tr'):
         (minimal / name).symlink_to(BASH if name == 'bash' else shutil.which(name))
     env = dict(os.environ, HOME=str(home), PATH=str(minimal),
                ZDOTDIR=str(home / 'custom zsh'),
@@ -52,6 +52,11 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
                    env=env, text=True, capture_output=True)
     assert shell.returncode == 0 and 'sfind' in shell.stdout, shell.stderr
     assert 'Sheets:' in shell.stdout
+    shell = sp.run([BASH, '--noprofile', '--norc', '-ic',
+                    '. "$HOME/.bash_profile"; type configs; configs'],
+                   env=dict(env, SHELL='/bin/zsh'), text=True, capture_output=True)
+    assert shell.returncode == 0 and 'configs is a function' in shell.stdout, shell.stderr
+    assert 'bash ' in shell.stdout and '~/.bashrc' in shell.stdout, shell.stdout
     sample = home / 'sample'
     sample.write_text('before\nneedle.*\nafter\n\nother\n')
     pfind = sp.check_output([str(runtime / 'shell-kit-search'), 'pfind',
@@ -67,6 +72,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     run(*args, '--yes')
     run('--components', 'references', '--yes')
     assert not (runtime / 'shell-kit-search').exists(), 'deselection left helper'
+    assert not (runtime / 'configs').exists(), 'deselection left configs'
     run('--uninstall', '--yes')
     assert (home / '.bashrc').read_bytes() == original
     assert not (runtime / 'cheat').exists()

@@ -6,7 +6,7 @@ STATE="$HOME/.local/state/shell-kit"
 LINK="$HOME/.local/share/shell-kit"
 RUNTIME="$HOME/.local/share/shell-kit-runtime/bin"
 names=(helpers references tmux vim skill)
-labels=('Shell search helpers' 'References and shell F1-F4 keys' 'Tmux keys and session picker' 'Vim / Neovim references' 'Agent reference skill')
+labels=('Shell helpers and config tree' 'References and shell F1-F4 keys' 'Tmux keys and session picker' 'Vim / Neovim references' 'Agent reference skill')
 selected=(0 0 0 0 0)
 mode=vanilla
 yes=0 dry=0 interactive=1 uninstall=0
@@ -106,7 +106,7 @@ dependencies() {
         done
     fi
     if chosen 0; then
-        for tool in grep find sort; do
+        for tool in grep find sort tr; do
             if ! has "$tool"; then printf 'Shell helpers need %s.\n' "$tool"; failed=1; fi
         done
     fi
@@ -230,6 +230,7 @@ if chosen 1; then
 fi
 add_link "$RUNTIME/cheat" "$source"
 source=''; chosen 0 && source="$ROOT/vanilla/shell-kit-search"; add_link "$RUNTIME/shell-kit-search" "$source"
+source=''; chosen 0 && source="$ROOT/vanilla/configs"; add_link "$RUNTIME/configs" "$source"
 source=''; chosen 2 && source="$source_root/tmenu"; add_link "$RUNTIME/tmenu" "$source"
 for base in .agents/skills .codex/skills .claude/skills .gemini/skills .gemini/antigravity/skills; do
     source=''; chosen 4 && source="$ROOT/skills/tmux-reference"

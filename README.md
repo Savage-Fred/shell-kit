@@ -88,7 +88,7 @@ unchecks those dependent integrations. The preview shows the complete selection.
 
 | Component | Vanilla dependencies | Enhanced additions |
 |---|---|---|
-| Shell search helpers | Bash, awk, grep, find | None; uses rg when available |
+| Shell helpers / configs | Bash, awk, grep, find, sort, tr | None; uses rg when available |
 | References / shell F1–F4 | Bash, cat; less optional | Python 3, less, private Rich environment |
 | Tmux keys / session picker | References, tmux >=3.2 | fzf |
 | Vim / Neovim references | References, Vim with scripting or Neovim | None |
@@ -184,6 +184,10 @@ aliases ssh             # name or body contains ssh
 sfind 'needle' .         # literal match, full paths, ±1 line, highlighting
 dfind 'partial-name' .  # full matching directory paths
 pfind 'needle' log.txt  # each match through the next blank line
+configs                 # shell startup files and possible source tree
+configs deps -f ~/.bashrc
+configs deps -d ~/.config/bash
+configs open ~/.bashrc  # open with your editor
 
 tmenu                   # roomy session picker with window preview
 tn project              # new session; switches safely inside tmux
@@ -198,6 +202,31 @@ aliases. The search helpers treat their terms literally; raw `rg` remains
 available for regular expressions. `sfind` uses ripgrep and its normal ignore
 rules when available; its standard grep fallback searches hidden and ignored
 files too, so start from a specific directory; `dfind` traverses directories except `.git` and does not follow symlinks.
+
+`configs` is part of Helpers in both modes. Reload your shell after installation
+so its wrapper can identify the calling Bash/Zsh, login status and `ZDOTDIR`.
+Without the wrapper it uses `$SHELL` and assumes an interactive non-login shell.
+Paths are terminal hyperlinks when output goes to a terminal, and plain paths
+when piped. Your terminal handles `file://` links; on SSH it may need remote-file
+support. `configs open FILE` uses `$VISUAL`/`$EDITOR` (an executable path or command
+with simple space-separated arguments), then macOS `open -t` or Linux `xdg-open`.
+The latter uses your desktop file association, which you can set to a text editor.
+
+Each indented child is a possible file sourced by its parent; line numbers point
+to the source statement. The scanner follows `.` and `source`, quoted paths,
+exported variables, simple assignments within a file, and `${VAR:-fallback}`.
+It never runs config code. Conditions, functions, shell options, runtime changes
+to directories/variables and computed paths prevent a static scan from proving
+exactly what was loaded. Dynamic sources are marked unresolved; complex heredocs
+or multiline quotes stop that file's scan with the same marker. Variables assigned
+by one file are not propagated into another. This is a startup/source map, not
+an execution trace or a scan of every application's settings.
+
+`-f` chooses one root; `-d` alone visits regular files recursively (except `.git`
+and symlinks). Together, `-d` resolves a relative `-f`. Relative source paths use
+the invocation working directory and shell search order, not the config's parent
+directory. Source cycles and repeated files are marked; recursion stops at 32
+levels. Keep directory scans focused on your shell config directory.
 
 The `legacy/` directory preserves reviewed, portable existing Python utilities
 and their tests. Machine-specific fleet wrappers and whole dotfiles stay on
@@ -232,6 +261,7 @@ Installer checks use Python for the test harness, not for installation:
 ```sh
 python3 -B tests/install_check.py
 python3 -B tests/install_keys.py
+python3 -B tests/configs_check.py
 ```
 
 Vanilla integration checks additionally need tmux, less and an editor:
@@ -260,3 +290,10 @@ that version's limit on long `bind -x` key sequences.
 Reference sources: [tmux manual](https://man.openbsd.org/tmux.1),
 [Vim help](https://vimhelp.org/), and
 [ripgrep guide](https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md).
+
+Regular Vim was also checked on Linux by downloading matching `vim`,
+`vim-runtime` and `vim-common` packages and extracting them with `dpkg-deb -x`
+into a temporary prefix, without a system install. Point `VIMRUNTIME` at that
+prefix's `usr/share/vim/vim91` and place a wrapper for `usr/bin/vim.basic` first
+in `PATH` to run the editor/PTY checks against full Vim instead of a `vim` alias
+that launches Neovim. Use the runtime directory matching your downloaded version.

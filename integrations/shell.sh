@@ -14,6 +14,20 @@ if ! type aliases >/dev/null 2>&1; then
         { alias; typeset -f; } | command shell-kit-search aliases "${1-}"
     }
 fi
+if ! typeset -f configs >/dev/null 2>&1 && ! alias configs >/dev/null 2>&1; then
+    function configs {
+        local _sk_login=0 _sk_shell _sk_binary
+        if [ -n "${BASH_VERSION-}" ]; then
+            _sk_shell=bash; _sk_binary=$BASH
+            shopt -q login_shell && _sk_login=1
+        else
+            _sk_shell=zsh; _sk_binary=$(command -v zsh) || _sk_binary=zsh
+            [[ -o login ]] && _sk_login=1
+        fi
+        CONFIGS_SHELL=$_sk_shell CONFIGS_BINARY=$_sk_binary CONFIGS_LOGIN=$_sk_login \
+            CONFIGS_ZDOTDIR=${ZDOTDIR:-$HOME} command configs "$@"
+    }
+fi
 if ! type sfind >/dev/null 2>&1; then
     function sfind { command shell-kit-search sfind "$@"; }
 fi
