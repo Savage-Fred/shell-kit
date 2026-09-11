@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Editable references and tmux sidebars. Python stdlib; bat + less for display."""
+"""Editable references and tmux sidebars. Rich Markdown + less for display."""
 from datetime import date
 import fcntl
 import hashlib
@@ -70,31 +70,42 @@ def sidebar(topic, target, action='toggle', owner='', automatic=False):
         return
     width, height = map(int, tm('display-message', '-p', '-t', target, '#{window_width} #{window_height}').split())
     sheets = [r for r in rows if r[1]]
+    overrides = [f'{name}={os.environ[name]}' for name in ('CHEAT_THEME', 'CHEAT_TIPS') if name in os.environ]
+    command = shlex.join(['env', *overrides, str(ROOT / 'bin/cheat'), 'view', topic])
     if width < 120 or height < 24 or (sheets and max(int(r[4]) for r in sheets) < 14):
-        if not automatic:
-            tm('display-popup', '-E', '-w', '95%', '-h', '90%', '-t', target,
-               shlex.join([str(ROOT / 'bin/cheat'), 'view', topic]))
-        return
-    if sheets:
-        anchor = max(sheets, key=lambda r: int(r[4]))[0]
-        split = ['-v', '-t', anchor]
+        if automatic:
+            return
+        # A real window follows terminal resizes; a popup keeps its old geometry.
+        session = tm('display-message', '-p', '-t', target, '#{session_id}')
+        pid = tm('new-window', '-P', '-F', '#{pane_id}', '-t', session + ':',
+                 '-n', 'help:' + topic, command)
     else:
-        split = ['-fhb', '-l', str(min(80, width * 2 // 5)), '-t', target]
-    pid = tm('split-window', '-dP', '-F', '#{pane_id}', *split,
-             shlex.join([str(ROOT / 'bin/cheat'), 'view', topic]))
+        if sheets:
+            anchor = max(sheets, key=lambda r: int(r[4]))[0]
+            split = ['-v', '-t', anchor]
+        else:
+            split = ['-fhb', '-l', str(min(80, width * 2 // 5)), '-t', target]
+        pid = tm('split-window', '-dP', '-F', '#{pane_id}', *split, command)
     for key, value in [('shell_kit', topic), ('shell_kit_owner', owner), ('shell_kit_auto', '1' if automatic else '0')]:
         tm('set-option', '-p', '-t', pid, '@' + key, value)
     tm('set-option', '-p', '-t', pid, 'remain-on-exit', 'off')
     tm('select-pane', '-t', pid, '-T', 'Help: ' + topic)
 
 def view(topic):
-    highlighter = shutil.which('bat') or shutil.which('batcat')
-    if not highlighter or not shutil.which('less'):
-        raise RuntimeError('Install bat and less, then retry (see README).')
+    if not shutil.which('less'):
+        raise RuntimeError('Install less, then retry (see README).')
     source = (ROOT / 'sheets' / (topic + '.md')).read_text()
     if topic == 'tmux' and os.environ.get('CHEAT_TIPS', '1') != '0':
         source = source.replace('\n', '\n\n> ' + tip() + '\n', 1)
-    content = sp.check_output([highlighter, '--color=always', '--style=plain', '--paging=never', '--language=md'], input=source.encode())
+    theme = os.environ.get('CHEAT_THEME', '')
+    if not theme and os.environ.get('TMUX'):
+        theme = tm('display-message', '-p', '#{client_theme}', check=False)
+    if theme not in ('light', 'dark'):
+        theme = 'light' if os.environ.get('COLORFGBG', '').split(';')[-1] in ('7', '15') else 'dark'
+    python = ROOT / '.venv/bin/python'
+    content = sp.check_output([str(python) if python.exists() else sys.executable,
+                              str(ROOT / 'bin/render-sheet'),
+                              str(min(80, shutil.get_terminal_size().columns)), theme], input=source.encode())
     # A private temporary file resets position; no remembered editor cursor.
     with tempfile.TemporaryDirectory(prefix='shell-kit-') as tmp:
         path = Path(tmp) / 'sheet'
@@ -109,7 +120,7 @@ def view(topic):
         sp.run(['less', '-R', '-i', '-+F', '-+X', '+g', '-P', f'Sheila: {topic} | arrows/PgDn scroll / search g top q or F1-F4 close', str(path)], env=env, check=False)
 
 def tip():
-    lines = [line.replace('`', '').replace('Prefix', 'Ctrl-b') for line in (ROOT / 'sheets/tmux.md').read_text().splitlines() if line.startswith('`Prefix ')]
+    lines = [line.rstrip('\\').strip().replace('`', '').replace('Prefix', 'Ctrl-b') for line in (ROOT / 'sheets/tmux.md').read_text().splitlines() if line.startswith('`Prefix ')]
     return 'Sheila: ' + lines[date.today().toordinal() % len(lines)] if lines else 'Sheila: Ctrl-b ? lists tmux shortcuts.'
 
 
@@ -137,6 +148,8 @@ def main(args):
         record = client_file(tty)
         kind = record.read_text().strip() if record.exists() else 'phone'
         with locked():
+            if tty not in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
+                return  # Ignore callbacks after their client left or pane disappeared.
             tm('set-option', '-t', target, '@shell_kit_client', kind)
             if kind not in ('desktop', 'macbook'):
                 close(target, automatic=True)
@@ -145,7 +158,10 @@ def main(args):
         return
     if action == 'cleanup':
         with locked():
-            rows = panes(args[0])
+            try:
+                rows = panes(args[0])
+            except sp.CalledProcessError:
+                return  # The last pane may have already removed this window.
             if rows and all(r[1] for r in rows):
                 close(args[0])
         return

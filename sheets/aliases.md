@@ -23,7 +23,7 @@ type -a ssh      # every matching definition/path
 alias ll         # inspect one alias
 ```
 
-In Bash, inspect a function body with `declare -f NAME`.
+In Bash, inspect a function body with `declare -f NAME`.\
 In Zsh, use `functions NAME`.
 
 ## Helpers in this collection
