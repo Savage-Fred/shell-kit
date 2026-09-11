@@ -91,7 +91,10 @@ def view(topic):
     highlighter = shutil.which('bat') or shutil.which('batcat')
     if not highlighter or not shutil.which('less'):
         raise RuntimeError('Install bat and less, then retry (see README).')
-    content = sp.check_output([highlighter, '--color=always', '--style=plain', '--paging=never', str(ROOT / 'sheets' / (topic + '.md'))])
+    source = (ROOT / 'sheets' / (topic + '.md')).read_text()
+    if topic == 'tmux' and os.environ.get('CHEAT_TIPS', '1') != '0':
+        source = source.replace('\n', '\n\n> ' + tip() + '\n', 1)
+    content = sp.check_output([highlighter, '--color=always', '--style=plain', '--paging=never', '--language=md'], input=source.encode())
     # A private temporary file resets position; no remembered editor cursor.
     with tempfile.TemporaryDirectory(prefix='shell-kit-') as tmp:
         path = Path(tmp) / 'sheet'
@@ -139,10 +142,6 @@ def main(args):
                 close(target, automatic=True)
             else:
                 sidebar('tmux', target, 'open', automatic=True)
-                today = date.today().isoformat()
-                if os.environ.get('CHEAT_TIPS', '1') != '0' and tm('show-options', '-qv', '-t', target, '@shell_kit_tip_date', check=False) != today:
-                    tm('display-message', '-d', '7000', '-t', target, tip())
-                    tm('set-option', '-t', target, '@shell_kit_tip_date', today)
         return
     if action == 'cleanup':
         with locked():
