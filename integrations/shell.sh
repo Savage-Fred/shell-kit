@@ -4,39 +4,39 @@ export SHELL_KIT_ROOT="$HOME/.local/share/shell-kit"
 case ":$PATH:" in *":$SHELL_KIT_ROOT/bin:"*) ;; *) export PATH="$SHELL_KIT_ROOT/bin:$HOME/.local/share/shell-kit-runtime/bin:$PATH" ;; esac
 
 if ! type aliases >/dev/null 2>&1; then
-    aliases() {
+    function aliases {
         { alias; typeset -f; } | command shell-kit-search aliases "${1-}"
     }
 fi
 if ! type sfind >/dev/null 2>&1; then
-    sfind() { command shell-kit-search sfind "$@"; }
+    function sfind { command shell-kit-search sfind "$@"; }
 fi
 if ! type dfind >/dev/null 2>&1; then
-    dfind() { command shell-kit-search dfind "$@"; }
+    function dfind { command shell-kit-search dfind "$@"; }
 fi
 if ! type pfind >/dev/null 2>&1; then
-    pfind() { command shell-kit-search pfind "$@"; }
+    function pfind { command shell-kit-search pfind "$@"; }
 fi
 if ! type tn >/dev/null 2>&1; then
-    tn() {
+    function tn {
         if [ -n "${TMUX-}" ]; then
             command tmux new-session -d -s "${1:?usage: tn NAME}" && command tmux switch-client -t "$1"
         else command tmux new-session -s "${1:?usage: tn NAME}"; fi
     }
 fi
 if ! type ta >/dev/null 2>&1; then
-    ta() {
+    function ta {
         if [ -n "${TMUX-}" ]; then command tmux switch-client -t "${1:?usage: ta NAME}"
         else command tmux attach-session -t "${1:?usage: ta NAME}"; fi
     }
 fi
 if ! type td >/dev/null 2>&1; then
-    td() { command tmux detach-client; }
+    function td { command tmux detach-client; }
 fi
-_sk_tmux() { command cheat tmux; }
-_sk_vim() { command cheat vim; }
-_sk_grep() { command cheat grep; }
-_sk_aliases() { command cheat aliases; }
+function _sk_tmux { command cheat tmux; }
+function _sk_vim { command cheat vim; }
+function _sk_grep { command cheat grep; }
+function _sk_aliases { command cheat aliases; }
 if [ -n "${BASH_VERSION-}" ]; then
     bind -x '"\eOP":_sk_tmux'
     bind -x '"\eOQ":_sk_vim'

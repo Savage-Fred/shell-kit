@@ -48,6 +48,11 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
     call('bash', '-n', str(ROOT / 'integrations/shell.sh'))
     if shutil.which('zsh'):
         call('zsh', '-n', str(ROOT / 'integrations/shell.sh'))
+    for shell in ('bash', 'zsh'):
+        if shutil.which(shell):
+            fixture = 'alias tn="echo existing"; . ' + str(ROOT / 'integrations/shell.sh') + '; aliases tn; type td'
+            output = call(shell, '-fic', fixture).stdout
+            assert 'echo existing' in output and 'td' in output, 'existing alias broke shell startup'
     sock = str(home / 'tmux.sock')
     def tm(*args):
         return call('tmux', '-S', sock, *args).stdout.strip()
