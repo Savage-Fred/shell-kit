@@ -105,6 +105,12 @@ def main():
                 until(lambda: tm('display-message', '-p', '-t', work,
                                  '#{pane_current_command}', check=False) == 'bash', 'editor did not return to shell')
                 print('PASS: ' + Path(editor).name + ' startup, stacking, focus and :q ownership cleanup')
+            tm('new-session', '-d', '-s', 'second', '/bin/bash --noprofile --norc')
+            tm('switch-client', '-t', 'second')
+            until(lambda: 'tmux' in tm('list-panes', '-t', 'second', '-F', '#{@shell_kit}'), 'switching session did not apply automatic help')
+            tm('switch-client', '-t', 'pty')
+            tm('kill-session', '-t', 'second')
+            print('PASS: session switching applies the current client profile')
             tm('detach-client', '-s', 'pty')
             phone = client('phone')
             until(lambda: tm('show-options', '-qv', '-t', 'pty',
