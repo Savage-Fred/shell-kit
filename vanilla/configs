@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Bash 3.2 and standard Unix utilities; inspection never sources a config.
+set -eo pipefail
+SELF=${BASH_SOURCE[0]}
+while [ -L "$SELF" ]; do
+    target=$(readlink "$SELF")
+    case $target in /*) SELF=$target ;; *) SELF=$(dirname "$SELF")/$target ;; esac
+done
+SCANNER=$(cd -P "$(dirname "$SELF")" && pwd)/configs.awk
+usage() {
+    cat <<'EOF'
+Usage: configs
+       configs deps [-f FILE] [-d DIRECTORY]
+       configs open FILE
+
+Shows existing startup files and possible source dependencies, without running
+configs. Children are sourced by their parent. Conditions are not evaluated.
+-f selects a root; -d scans regular files below a directory (or resolves a
+relative -f within that directory). Relative sources use the invocation working
+directory and PATH, as shells do. Dynamic expressions are marked unresolved.
+Terminal file links use your terminal's handler; 'configs open FILE' uses your
+editor (VISUAL/EDITOR), or macOS open -t / Linux xdg-open when available.
+EOF
+}
+fail() { printf 'configs: %s\n' "$*" >&2; exit 1; }
+case ${1-} in
+    -h|--help) usage; exit ;;
+    open)
+        [ "$#" -eq 2 ] || fail 'usage: configs open FILE'
+        file=$2; case $file in /*) ;; *) file=$PWD/$file ;; esac
+        [ -f "$file" ] || fail "not a regular file: $2"
+        editor=${VISUAL:-${EDITOR:-}}
+        if [ -n "$editor" ]; then
+            # Editor plus simple arguments; never eval an environment variable.
+            if [ -x "$editor" ]; then exec "$editor" "$file"; fi
+            read -r -a editor_args <<< "$editor"
+            exec "${editor_args[@]}" "$file"
+        elif [ "$(uname -s)" = Darwin ] && command -v open >/dev/null 2>&1; then exec open -t "$file"
+        elif command -v xdg-open >/dev/null 2>&1; then exec xdg-open "$file"
+        else fail 'set VISUAL or EDITOR to a text editor'; fi ;;
+    deps) shift ;;
+    '') ;;
+    *) fail "unknown command: $1 (see --help)" ;;
+esac
+shell=${CONFIGS_SHELL:-${SHELL:-bash}}; shell=${shell##*/}
+file=''; directory=''
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        -f|-d)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || fail "$1 needs a path"
+            if [ "$1" = -f ]; then file=$2; else directory=$2; fi
+            shift 2 ;;
+        *) fail "unknown option: $1" ;;
+    esac
+done
+if [ -n "$directory" ]; then
+    [ -d "$directory" ] || fail "not a directory: $directory"
+    directory=$(cd -P "$directory" && pwd)
+fi
+if [ -n "$file" ]; then
+    case $file in /*) ;; *) file=${directory:-$PWD}/$file ;; esac
+    [ -f "$file" ] || fail "not a regular file: $file"
+fi
+# Never emit terminal control characters from filenames/config contents.
+label() {
+    local path=$1 shown=$1 uri='' char hex i
+    # shellcheck disable=SC2088 # Display the literal home abbreviation.
+    case $shown in "$HOME"/*) shown="~/${shown#"$HOME"/}" ;; esac
+    shown=$(printf '%s' "$shown" | LC_ALL=C tr -d '\000-\037\177')
+    if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ]; then
+        local LC_ALL=C
+        for ((i=0; i<${#path}; i++)); do
+            char=${path:i:1}
+            case $char in [a-zA-Z0-9/._~-]) uri=$uri$char ;;
+                *) printf -v hex '%%%02X' "'$char"; uri=$uri$hex ;; esac
+        done
+        # shellcheck disable=SC1003 # OSC 8 uses ESC followed by a backslash.
+        printf '\033]8;;file://%s\033\\%s\033]8;;\033\\' "$uri" "$shown"
+    else printf '%s' "$shown"; fi
+}
+seen=(); stack=()
+walk() {
+    local path=$1 prefix=$2 note=$3 physical item line child kind resolved part found
+    printf '%s|-- ' "$prefix"; label "$path"; printf '  %s' "$note"
+    if [ ! -f "$path" ] || [ ! -r "$path" ]; then printf ' [missing/unreadable]\n'; return; fi
+    physical=$path
+    # -ef compares device/inode, including symlink aliases, on Bash 3.2.
+    for item in "${stack[@]}"; do
+        if [ "$physical" -ef "$item" ]; then printf ' [cycle]\n'; return; fi
+    done
+    for item in "${seen[@]}"; do
+        if [ "$physical" -ef "$item" ]; then printf ' [already shown]\n'; return; fi
+    done
+    if [ "${#stack[@]}" -ge 32 ]; then printf ' [depth limit]\n'; return; fi
+    printf '\n'; seen[${#seen[@]}]=$physical; stack[${#stack[@]}]=$physical
+    while IFS=$'\t' read -r line child kind; do
+        if [ "$child" = '?' ]; then printf '%s  |-- [dynamic source at line %s; unresolved]\n' "$prefix" "$line"; continue; fi
+        resolved=$child
+        case $child in
+            /*) ;;
+            *)
+                resolved=$PWD/$child
+                if [[ $child != */* ]] && ! { [ "$shell" = zsh ] && [ "$kind" = source ] && [ -f "$resolved" ]; }; then
+                    found=0
+                    local old_ifs=$IFS
+                    IFS=:
+                    for part in $PATH; do
+                        if [ -f "${part:-$PWD}/$child" ]; then resolved=${part:-$PWD}/$child; found=1; break; fi
+                    done
+                    IFS=$old_ifs
+                    if [ "$shell" = zsh ] && [ "$kind" = . ] && [ "$found" = 0 ]; then
+                        printf '%s  |-- [source at line %s: file not found on PATH]\n' "$prefix" "$line"
+                        continue
+                    fi
+                fi ;;
+        esac
+        case $resolved in /*) ;; *) resolved=$PWD/$resolved ;; esac
+        walk "$resolved" "$prefix    " "source, line $line"
+    done < <(awk -f "$SCANNER" "$path")
+    unset 'stack[${#stack[@]}-1]'
+}
+printf 'Possible source tree (static; conditions and function calls are not evaluated)\n'
+if [ -n "$file" ]; then walk "$file" '' 'selected file'
+elif [ -n "$directory" ]; then
+    # Explicit directory scans include extensionless dotfiles, never symlinks/FIFOs.
+    while IFS= read -r -d '' file; do walk "$file" '' 'directory file'; done < <(find "$directory" -name .git -prune -o -type f -print0)
+else
+    printf '%s %s\n' "$shell" "${CONFIGS_BINARY:-${SHELL:-unknown}}"
+    root() { [ ! -f "$1" ] || walk "$1" '' "$2"; }
+    case $shell in
+        bash)
+            if [ "${CONFIGS_LOGIN:-0}" = 1 ]; then
+                root /etc/profile 'system login setup'
+                for file in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+                    if [ -r "$file" ]; then root "$file" 'user login setup (first available)'; break; fi
+                done
+            else
+                root /etc/bash.bashrc 'system interactive setup, where supported'
+                root "$HOME/.bashrc" 'interactive shell settings'
+            fi ;;
+        zsh)
+            zdot=${CONFIGS_ZDOTDIR:-${ZDOTDIR:-$HOME}}
+            sys=/etc; [ ! -d /etc/zsh ] || sys=/etc/zsh
+            root "$sys/zshenv" 'system environment'; root "$zdot/.zshenv" 'user environment'
+            if [ "${CONFIGS_LOGIN:-0}" = 1 ]; then root "$sys/zprofile" 'system login setup'; root "$zdot/.zprofile" 'user login setup'; fi
+            root "$sys/zshrc" 'system interactive setup'; root "$zdot/.zshrc" 'interactive shell settings'
+            if [ "${CONFIGS_LOGIN:-0}" = 1 ]; then root "$sys/zlogin" 'system login commands'; root "$zdot/.zlogin" 'user login commands'; fi ;;
+        *) fail 'set CONFIGS_SHELL=bash or zsh, or use deps -f FILE' ;;
+    esac
+fi
