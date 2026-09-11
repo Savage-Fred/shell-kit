@@ -148,6 +148,8 @@ def main(args):
         record = client_file(tty)
         kind = record.read_text().strip() if record.exists() else 'phone'
         with locked():
+            if tty not in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
+                return  # Ignore callbacks after their client left or pane disappeared.
             tm('set-option', '-t', target, '@shell_kit_client', kind)
             if kind not in ('desktop', 'macbook'):
                 close(target, automatic=True)
