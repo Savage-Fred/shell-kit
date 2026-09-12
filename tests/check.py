@@ -36,6 +36,19 @@ with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', P
         else:
             raise AssertionError('active-client hook error was hidden')
 
+# A forgotten topic or hook argument stays a cheat: message, never a raw traceback.
+with tempfile.TemporaryDirectory(prefix='shell-kit-args-') as tmp:
+    bare = dict(os.environ, HOME=tmp)
+    bare.pop('TMUX', None)
+    bare.pop('TMUX_PANE', None)
+    in_tmux = dict(bare, TMUX=tmp + '/absent.sock,0,0', TMUX_PANE='%0')
+    for missing, environment in [(['view'], bare), (['edit'], bare), (['open'], bare), (['close'], bare),
+                                 (['auto'], bare), (['cleanup'], bare), (['close-owner'], in_tmux)]:
+        done = sp.run([str(ROOT / 'bin/cheat'), *missing], env=environment, text=True,
+                      stdout=sp.PIPE, stderr=sp.PIPE)
+        assert done.returncode == 1, (missing, done.returncode, done.stderr)
+        assert done.stderr.startswith('cheat: ') and 'Traceback' not in done.stderr, (missing, done.stderr)
+
 for sheet in (ROOT / 'sheets').glob('*.md'):
     assert all(len(line) <= 80 for line in sheet.read_text().splitlines()), sheet
 

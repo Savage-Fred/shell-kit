@@ -175,6 +175,8 @@ def main(args):
             with locked():
                 close(os.environ['TMUX_PANE'], owner=args[0])
         return
+    if action in ('view', 'edit', 'open', 'close', 'auto') and not args:
+        raise RuntimeError('Missing topic. Usage: cheat ' + action + ' TOPIC')
     topic = args.pop(0) if action in ('view', 'edit', 'open', 'close', 'auto') else action
     if topic not in TOPICS():
         raise RuntimeError('Unknown sheet: ' + topic)
@@ -200,6 +202,6 @@ def locked():
 if __name__ == '__main__':
     try:
         main(sys.argv[1:])
-    except (RuntimeError, sp.CalledProcessError, OSError, ValueError, KeyError) as exc:
+    except (RuntimeError, sp.CalledProcessError, OSError, ValueError, KeyError, IndexError) as exc:
         print('cheat: ' + str(exc), file=sys.stderr)
         sys.exit(1)
