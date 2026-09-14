@@ -5,41 +5,81 @@
 
 ## Reach first · Normal mode
 
-`h j k l` ← ↓ ↑ → · `w/b` word forward/back · `e` word end\
-`0 / ^ / $` line start / first text / end · `gg/G` file start/end\
-`Ctrl-d/u` half-page down/up · `zz` center cursor\
-`/text` search · `n/N` next/previous · `*` search cursor word\
-`i/a` insert before/after · `I/A` first text/end of line\
-`o/O` new line below/above · `u` undo · `Ctrl-r` redo · `.` repeat\
-`:w` save · `:q` quit · `:wq` save + quit · `:q!` discard changes
+`h j k l` left / down / up / right\
+`w` next word · `b` previous word · `e` end of word\
+`0` line start · `^` first text · `$` line end\
+`gg` file start · `G` file end · `42G` line 42\
+`Ctrl-d` half page down · `Ctrl-u` half page up\
+`zz` center cursor · `zt` cursor to top · `zb` cursor to bottom\
+`/text` search forward · `?text` search back\
+`n` next match · `N` previous match · `*` search cursor word
 
-## Select well · Visual mode
+## Start typing · Insert mode
 
-`v` characters · `V` lines · `Ctrl-v` rectangular block\
-Move to extend selection; `o` switches the active end; `Esc` cancels.\
-`gv` restores your last selection.
+`i` insert before cursor · `a` insert after cursor\
+`I` insert at first text · `A` append at end of line\
+`o` open line below · `O` open line above\
+`u` undo · `Ctrl-r` redo · `.` repeat last change
 
-`viw` word · `vi"` inside quotes · `vi(` parentheses · `vip` paragraph\
-Use `a` instead of `i` to include delimiters: `va"`, `va(`.
+## Select · Visual mode
 
-With a selection: `y` copy · `d` cut · `c` replace · `>` indent\
-`<` unindent · `=` autoindent · `~` swap case
+`v` select characters\
+`V` select whole lines\
+`Ctrl-v` select a rectangular block\
+`o` switch the active end of the selection\
+`gv` restore your last selection · `Esc` cancel
 
-Block insert: `Ctrl-v`, select rows, `I`, type, then **Esc**.\
-Block append: same sequence with `A`. Inspect short lines afterward.
+Move with any Normal-mode motion to extend the selection.
+
+## Select a text object
+
+`viw` inside word · `vaw` word plus its space\
+`vi"` inside quotes · `va"` quotes included\
+`vi(` inside parentheses · `va(` parentheses included\
+`vi{` inside braces · `vit` inside an HTML/XML tag\
+`vip` inside paragraph · `vap` paragraph plus blank line
+
+`i` means inside, `a` means around (delimiters included).
+
+## Act on a selection
+
+`y` copy · `d` cut · `c` replace and start typing\
+`>` indent · `<` unindent · `=` autoindent\
+`~` swap case · `u` lowercase · `U` uppercase\
+`J` join the selected lines
+
+## Edit a column · Visual block
+
+`Ctrl-v`, select rows, `I`, type, then **Esc** inserts on every row.\
+`Ctrl-v`, select rows, `A`, type, then **Esc** appends on every row.\
+`Ctrl-v`, select rows, `$`, `A` appends at each ragged line end.\
+Inspect short lines afterward; blocks skip lines that end early.
 
 [Visual mode guide](https://vimhelp.org/visual.txt.html)
 
 ## Compose edits · Normal mode
 
-`d` delete · `c` change · `y` copy; add a motion or text object.\
+`d` delete · `c` change · `y` copy; each takes a motion or object.\
+`dw` delete word · `3dw` delete three words · `d$` delete to line end\
+`dd` cut line · `yy` copy line · `cc` replace line\
 `ci"` replace quoted text · `da(` delete including parentheses\
-`3dw` delete three words · `dd/yy` cut/copy line · `p/P` put after/before\
-`"ayiw` word to register a · `"ap` paste a · `:registers` inspect\
-`"+y` copy selection to OS clipboard if Vim has clipboard support.
+`p` put after cursor · `P` put before cursor\
+`x` delete character · `r` replace one character
 
-`fX/tX` find/stop before X · `; / ,` repeat/reverse that find\
-`%` matching bracket · `Ctrl-o/i` older/newer jump
+## Registers and clipboard
+
+`"ayiw` yank word into register a · `"ap` put register a\
+`:registers` inspect what is stored\
+`"+y` copy to the OS clipboard, if Vim has clipboard support\
+`"+p` put from the OS clipboard
+
+## Find on a line · jump back
+
+`fX` jump to next X · `tX` stop before X\
+`FX` jump back to X · `;` repeat find · `,` reverse find\
+`%` matching bracket\
+`Ctrl-o` older position · `Ctrl-i` newer position\
+`` `` `` back to the last jump
 
 [Quick reference](https://vimhelp.org/quickref.txt.html)
 
@@ -48,16 +88,63 @@ Block append: same sequence with `A`. Inspect short lines afterward.
 ```vim
 :%s/old/new/gc     " whole file, each match, confirm
 :'<,'>s/old/new/g  " selected lines; : fills in the range
-:nohlsearch       " clear search highlights
+:nohlsearch        " clear search highlights
 ```
 
 Record: `qa`, make edits, `q`. Replay: `@a`; repeat last macro: `@@`.
 
-## Windows and buffers
+## Split the window · layout
 
-`:vs file` vertical split · `:sp file` horizontal split\
-`Ctrl-w h/j/k/l` focus split · `Ctrl-w =` equalize\
-`:ls` buffers · `:b 2` buffer 2 · `Ctrl-^` alternate buffer
+`:vs file` split left/right · `Ctrl-w v` split current file left/right\
+`:sp file` split top/bottom · `Ctrl-w s` split current file top/bottom\
+`Ctrl-w =` equalize every split\
+`Ctrl-w _` maximize height · `Ctrl-w |` maximize width\
+`Ctrl-w 20+` grow 20 rows · `Ctrl-w 20>` widen 20 columns\
+`Ctrl-w o` close every split but this one · `Ctrl-w c` close this one\
+`Ctrl-w H/J/K/L` move this split to the far left/bottom/top/right\
+`Ctrl-w T` move this split into its own tab
+
+## Move focus between splits
+
+`Ctrl-w h` focus the split to the left\
+`Ctrl-w j` focus the split below\
+`Ctrl-w k` focus the split above\
+`Ctrl-w l` focus the split to the right\
+`Ctrl-w w` cycle forward · `Ctrl-w p` previous split
+
+Press `Ctrl-w`, release, then the direction key.
+
+## Move between this sheet and your file
+
+**Inside tmux**, the sheet is a pane beside Vim, not a Vim split:\
+`Prefix ←` focus the sheet · `Prefix →` focus your editor\
+`Prefix ↑` / `Prefix ↓` move between stacked sheets\
+`Prefix o` cycle panes · `Prefix z` zoom the focused pane\
+`F2` closes the sheet from either pane · `q` closes it from inside\
+Prefix is `Ctrl-b` unless you changed it; see the tmux sheet (F1).\
+In a narrow window the sheet opens as its own tmux window instead:\
+`Prefix n` / `Prefix p` next / previous window · `Prefix w` pick one
+
+**Without tmux**, the sheet is a Vim split on the left:\
+`Ctrl-w l` back to your file · `Ctrl-w h` back to the sheet\
+`q` inside the sheet closes it · `F2` toggles it\
+Below 120 columns the sheet opens in its own tab instead:\
+`gt` next tab · `gT` previous tab · `1gt` first tab
+
+The sheet is read-only, so edits land in your file, never here.
+
+## Tabs and buffers
+
+`:tabnew file` new tab · `gt` / `gT` next / previous tab\
+`:tabclose` close tab · `:tabonly` keep only this tab\
+`:ls` list buffers · `:b 2` go to buffer 2 · `:bn` / `:bp` next / previous\
+`Ctrl-^` alternate buffer
+
+## Save and quit
+
+`:w` save · `:w file` save as\
+`:q` quit · `:wq` save and quit · `:q!` discard changes\
+`:qa` quit every window · `:wqa` save all and quit
 
 ## Make settings stick
 
@@ -69,6 +156,7 @@ set relativenumber
 set incsearch hlsearch
 set ignorecase smartcase
 set scrolloff=4
+set splitright splitbelow
 nnoremap <leader>h :nohlsearch<CR>
 ```
 
