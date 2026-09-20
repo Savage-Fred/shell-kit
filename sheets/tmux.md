@@ -1,6 +1,6 @@
 # tmux · stay oriented
 
-**F1** toggle this sheet · F2 vim · F3 grep · F4 aliases\
+**F1** toggle this sheet · F2 vim · F3 grep · F4 aliases · F5 git\
 **Prefix = Ctrl-b**, release, then press the next key.
 
 ## Reach first

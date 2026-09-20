@@ -61,7 +61,7 @@ function! ShellKitCleanup() abort
   endif
 endfunction
 
-for [s:key, s:topic] in [['F1','tmux'], ['F2','vim'], ['F3','grep'], ['F4','aliases']]
+for [s:key, s:topic] in [['F1','tmux'], ['F2','vim'], ['F3','grep'], ['F4','aliases'], ['F5','git']]
   execute 'nnoremap <silent> <' . s:key . '> :call ShellKitSheet("' . s:topic . '", 0)<CR>'
   execute 'inoremap <silent> <' . s:key . '> <C-O>:call ShellKitSheet("' . s:topic . '", 0)<CR>'
   execute 'xnoremap <silent> <' . s:key . '> :<C-U>call ShellKitSheet("' . s:topic . '", 0)<CR>gv'
