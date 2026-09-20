@@ -62,11 +62,19 @@ if [ -n "$file" ]; then
     case $file in /*) ;; *) file=${directory:-$PWD}/$file ;; esac
     [ -f "$file" ] || fail "not a regular file: $file"
 fi
+# Relative sources resolve against $PWD and -d scans use cd -P, both physical,
+# while $HOME stays logical. Keep the abbreviation working for either form.
+home_physical=$HOME
+if [ -d "$HOME" ]; then home_physical=$(cd -P "$HOME" 2>/dev/null && pwd) || home_physical=$HOME; fi
+[ -n "$home_physical" ] || home_physical=$HOME
 # Never emit terminal control characters from filenames/config contents.
 label() {
     local path=$1 shown=$1 uri='' char hex i
     # shellcheck disable=SC2088 # Display the literal home abbreviation.
-    case $shown in "$HOME"/*) shown="~/${shown#"$HOME"/}" ;; esac
+    case $shown in
+        "$HOME"/*) shown="~/${shown#"$HOME"/}" ;;
+        "$home_physical"/*) shown="~/${shown#"$home_physical"/}" ;;
+    esac
     shown=$(printf '%s' "$shown" | LC_ALL=C tr -d '\000-\037\177')
     if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ]; then
         local LC_ALL=C
