@@ -47,15 +47,20 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     assert (home / '.bashrc').read_bytes() == installed, 'rerun changed config'
     # A rerun that replaces nothing must not leave an empty backup directory.
     assert sorted(path.name for path in backups.iterdir()) == after_install, after_install
-    # Retention trims the oldest directories once a replacement really happens.
+    # Old versions used random names. Sort by age, never their lexical names;
+    # the fresh timestamped backup must survive migration.
     for index in range(14):
-        (backups / 'install.20000101T0000{:02d}Z.aaaaaa'.format(index)).mkdir()
+        legacy = backups / 'install.{:06d}'.format(index)
+        legacy.mkdir()
+        os.utime(legacy, (946684800 + index, 946684800 + index))
     (home / '.bashrc').write_bytes(installed + b'# drift\n')
     run(*args, '--yes')
     remaining = sorted(path.name for path in backups.iterdir())
     assert len(remaining) == 10, remaining
-    assert 'install.20000101T000005Z.aaaaaa' not in remaining, remaining
-    assert 'install.20000101T000006Z.aaaaaa' in remaining, remaining
+    assert 'install.000005' not in remaining, remaining
+    assert 'install.000006' in remaining, remaining
+    assert any(name not in after_install and name.startswith('install.20')
+               for name in remaining), remaining
     (home / '.bashrc').write_bytes(installed)
     runtime = home / '.local/share/shell-kit-runtime/bin'
     assert (runtime / 'cheat').exists() and not (runtime / 'tmenu').exists()

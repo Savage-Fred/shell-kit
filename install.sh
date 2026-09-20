@@ -343,17 +343,28 @@ backup=''
 ensure_backup() {
     [ -z "$backup" ] || return 0
     mkdir -p "$STATE/backups"
-    # A timestamped name sorts chronologically, so pruning needs no ls parsing.
     backup=$(mktemp -d "$STATE/backups/install.$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
 }
 prune_backups() {
-    local index limit
-    local kept
-    kept=("$STATE"/backups/install.*)
-    [ -d "${kept[0]}" ] || return 0
-    limit=$(( ${#kept[@]} - backup_keep ))
-    [ "$limit" -gt 0 ] || return 0
-    for ((index=0; index<limit; index++)); do rm -rf "${kept[$index]}"; done
+    local path oldest
+    local kept=() next=()
+    for path in "$STATE"/backups/install.*; do
+        [ ! -d "$path" ] || kept+=("$path")
+    done
+    while [ "${#kept[@]}" -gt "$backup_keep" ]; do
+        oldest=''
+        for path in "${kept[@]}"; do
+            [ "$path" = "$backup" ] && continue
+            if [ -z "$oldest" ] || [ "$path" -ot "$oldest" ]; then oldest=$path; fi
+        done
+        [ -n "$oldest" ] || break
+        rm -rf "$oldest"
+        next=()
+        for path in "${kept[@]}"; do
+            [ "$path" = "$oldest" ] || next+=("$path")
+        done
+        kept=("${next[@]}")
+    done
 }
 for ((i=0; i<${#paths[@]}; i++)); do
     target=${targets[$i]}
@@ -389,7 +400,7 @@ done
     done
 } > "$work/install.tsv"
 mv "$work/install.tsv" "$STATE/install.tsv"
-prune_backups
+if [ -n "$backup" ]; then prune_backups; fi
 if [ -n "$backup" ]; then printf 'Saved. Backups: %s\n' "$backup"
 else printf 'Saved. No existing file needed a backup.\n'; fi
 printf 'Open a new shell/editor. Reload tmux config for added bindings.\n'

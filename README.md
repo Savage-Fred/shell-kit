@@ -125,7 +125,8 @@ validates destinations before changing configs. Backups and a `files.tsv` index
 are kept in `~/.local/state/shell-kit/backups/install.*`; the index maps each
 numbered backup to the original target path. Do not share these private backups.
 A backup directory is created only when a file is actually replaced, so a rerun
-that changes nothing leaves none; the ten most recent are kept.
+that changes nothing leaves none; the ten most recent are kept by directory
+modification time, including backups from older shell-kit versions.
 Unexpected write failures can leave some components applied; retain the reported
 backups, correct the filesystem problem, and rerun the same selection.
 
