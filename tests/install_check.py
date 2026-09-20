@@ -15,9 +15,9 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     home.mkdir()
     minimal = Path(folder) / 'bin'
     minimal.mkdir()
-    for name in ('bash', 'awk', 'cat', 'cmp', 'cp', 'dirname', 'ln', 'mkdir',
-                 'mktemp', 'mv', 'readlink', 'rm', 'stty', 'tail', 'chmod',
-                 'grep', 'find', 'sort', 'tr'):
+    for name in ('bash', 'awk', 'cat', 'cmp', 'cp', 'date', 'dirname', 'ln',
+                 'mkdir', 'mktemp', 'mv', 'readlink', 'rm', 'stty', 'tail',
+                 'chmod', 'grep', 'find', 'sort', 'tr'):
         (minimal / name).symlink_to(BASH if name == 'bash' else shutil.which(name))
     env = dict(os.environ, HOME=str(home), PATH=str(minimal),
                ZDOTDIR=str(home / 'custom zsh'),
@@ -40,8 +40,23 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     run(*args, '--yes')
     installed = (home / '.bashrc').read_bytes()
     assert b'alias mine=' in installed
+    backups = home / '.local/state/shell-kit/backups'
+    after_install = sorted(path.name for path in backups.iterdir())
+    assert len(after_install) == 1, after_install
     run(*args, '--yes')
     assert (home / '.bashrc').read_bytes() == installed, 'rerun changed config'
+    # A rerun that replaces nothing must not leave an empty backup directory.
+    assert sorted(path.name for path in backups.iterdir()) == after_install, after_install
+    # Retention trims the oldest directories once a replacement really happens.
+    for index in range(14):
+        (backups / 'install.20000101T0000{:02d}Z.aaaaaa'.format(index)).mkdir()
+    (home / '.bashrc').write_bytes(installed + b'# drift\n')
+    run(*args, '--yes')
+    remaining = sorted(path.name for path in backups.iterdir())
+    assert len(remaining) == 10, remaining
+    assert 'install.20000101T000005Z.aaaaaa' not in remaining, remaining
+    assert 'install.20000101T000006Z.aaaaaa' in remaining, remaining
+    (home / '.bashrc').write_bytes(installed)
     runtime = home / '.local/share/shell-kit-runtime/bin'
     assert (runtime / 'cheat').exists() and not (runtime / 'tmenu').exists()
     # With no pager, a popup would close as soon as cat exits. Keep the sheet

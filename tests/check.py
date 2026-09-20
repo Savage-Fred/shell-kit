@@ -36,6 +36,18 @@ with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', P
         else:
             raise AssertionError('active-client hook error was hidden')
 
+# A recycled tty must not inherit a months-old help policy. Expiry also keeps
+# the record directory from accumulating entries for ttys that are long gone.
+with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', Path(state)):
+    current, expired = Path(state) / 'client-current', Path(state) / 'client-expired'
+    current.write_text('desktop')
+    expired.write_text('desktop')
+    past = time.time() - (controller.CLIENT_RECORD_DAYS + 1) * 86400
+    os.utime(expired, (past, past))
+    controller.expire_clients()
+    assert current.exists(), 'expiry removed a record still inside its window'
+    assert not expired.exists(), 'expiry kept a record past its window'
+
 for sheet in (ROOT / 'sheets').glob('*.md'):
     assert all(len(line) <= 80 for line in sheet.read_text().splitlines()), sheet
 

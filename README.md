@@ -121,6 +121,8 @@ and permissions. The installer checks all blocks for malformed markers and
 validates destinations before changing configs. Backups and a `files.tsv` index
 are kept in `~/.local/state/shell-kit/backups/install.*`; the index maps each
 numbered backup to the original target path. Do not share these private backups.
+A backup directory is created only when a file is actually replaced, so a rerun
+that changes nothing leaves none; the ten most recent are kept.
 Unexpected write failures can leave some components applied; retain the reported
 backups, correct the filesystem problem, and rerun the same selection.
 
@@ -173,7 +175,10 @@ explicit profile in the remote terminal startup command, then start a login
 shell. SSH doesn't provide a trustworthy device-type label automatically.
 Unknown remote clients default to no automatic help. The registration uses the
 outer shell's TTY, so a detached session doesn't retain the first client's
-identity forever.
+identity forever. Because the system reuses TTY names, a registration expires
+after 30 days rather than handing an old profile to a new client on the same
+TTY; a shell open longer than that loses automatic help until you rerun
+`cheat register`.
 
 ## Helpers
 
