@@ -22,6 +22,19 @@ def load(name, path):
     return module
 
 controller = load('controller', ROOT / 'bin/cheat-enhanced')
+
+# A recycled tty must not inherit a months-old help policy. Expiry also keeps
+# the record directory from accumulating entries for ttys that are long gone.
+with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', Path(state)):
+    current, expired = Path(state) / 'client-current', Path(state) / 'client-expired'
+    current.write_text('desktop')
+    expired.write_text('desktop')
+    past = time.time() - (controller.CLIENT_RECORD_DAYS + 1) * 86400
+    os.utime(expired, (past, past))
+    controller.expire_clients()
+    assert current.exists(), 'expiry removed a record still inside its window'
+    assert not expired.exists(), 'expiry kept a record past its window'
+
 # A client can depart after validation but before the hook changes its pane.
 with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', Path(state)):
     failure = sp.CalledProcessError(1, ['tmux', 'list-panes'])

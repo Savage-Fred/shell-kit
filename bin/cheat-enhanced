@@ -12,10 +12,15 @@ import shutil
 import subprocess as sp
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ['PATH'] = str(Path.home() / '.local/share/shell-kit-runtime/bin') + os.pathsep + os.environ.get('PATH', '')
 STATE = Path.home() / '.local/state/shell-kit'
+# The OS recycles tty names, so a record older than this describes a different
+# client. Expiring one only costs that shell its automatic help until it
+# re-registers, which is the safe direction to fail.
+CLIENT_RECORD_DAYS = 30
 TOPICS = lambda: sorted(p.stem for p in (ROOT / 'sheets').glob('*.md'))
 
 def run(*args, check=True):
@@ -42,8 +47,18 @@ def profile():
 def client_file(tty):
     return STATE / ('client-' + hashlib.sha256(tty.encode()).hexdigest())
 
+def expire_clients():
+    cutoff = time.time() - CLIENT_RECORD_DAYS * 86400
+    for record in STATE.glob('client-*'):
+        try:
+            if record.stat().st_mtime < cutoff:
+                record.unlink()
+        except OSError:
+            pass  # A concurrent shell may have replaced or removed it already.
+
 def register():
     STATE.mkdir(parents=True, exist_ok=True)
+    expire_clients()
     try:
         tty = os.ttyname(sys.stdin.fileno())
     except OSError:
