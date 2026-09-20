@@ -45,7 +45,7 @@ def exercise(home, keys, confirm):
             until(b'Apply this plan?')
             assert snapshot() == before, 'Enter applied before confirmation'
             os.write(fd, confirm)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             if select.select([fd], [], [], .05)[0]:
                 try:

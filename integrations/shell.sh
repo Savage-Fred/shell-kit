@@ -62,6 +62,7 @@ function _sk_vim { command cheat vim; }
 function _sk_grep { command cheat grep; }
 function _sk_aliases { command cheat aliases; }
 function _sk_git { command cheat git; }
+function _sk_agents { command cheat agents; }
 if [ -n "${BASH_VERSION-}" ]; then
   if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
     # Bash 3.2 bind -x cannot execute the longer terminal F-key sequences.
@@ -70,6 +71,7 @@ if [ -n "${BASH_VERSION-}" ]; then
     bind -x '"\C-x3":_sk_grep'
     bind -x '"\C-x4":_sk_aliases'
     bind -x '"\C-x5":_sk_git'
+    bind -x '"\C-x6":_sk_agents'
     bind '"\eOP":"\C-x1"'
     bind '"\eOQ":"\C-x2"'
     bind '"\eOR":"\C-x3"'
@@ -79,6 +81,7 @@ if [ -n "${BASH_VERSION-}" ]; then
     bind '"\e[13~":"\C-x3"'
     bind '"\e[14~":"\C-x4"'
     bind '"\e[15~":"\C-x5"'
+    bind '"\e[17~":"\C-x6"'
   else
     bind -x '"\eOP":_sk_tmux'
     bind -x '"\eOQ":_sk_vim'
@@ -89,6 +92,7 @@ if [ -n "${BASH_VERSION-}" ]; then
     bind -x '"\e[13~":_sk_grep'
     bind -x '"\e[14~":_sk_aliases'
     bind -x '"\e[15~":_sk_git'
+    bind -x '"\e[17~":_sk_agents'
   fi
 else
     zle -N _sk_tmux
@@ -96,6 +100,7 @@ else
     zle -N _sk_grep
     zle -N _sk_aliases
     zle -N _sk_git
+    zle -N _sk_agents
     for _sk_map in emacs viins vicmd; do
         bindkey -M "$_sk_map" '\eOP' _sk_tmux
         bindkey -M "$_sk_map" '\eOQ' _sk_vim
@@ -106,6 +111,7 @@ else
         bindkey -M "$_sk_map" '\e[13~' _sk_grep
         bindkey -M "$_sk_map" '\e[14~' _sk_aliases
         bindkey -M "$_sk_map" '\e[15~' _sk_git
+        bindkey -M "$_sk_map" '\e[17~' _sk_agents
     done
     unset _sk_map
 fi

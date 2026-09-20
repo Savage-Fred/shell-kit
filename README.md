@@ -18,11 +18,12 @@ manager. Enhanced rendering and automatic sidebars are optional.
 | **F3** | grep / ripgrep |
 | **F4** | aliases and functions |
 | **F5** | git |
+| **F6** | agent harnesses |
 
-Press the same key to close. On a Mac, you may need **Fn + F1…F5**; the
+Press the same key to close. On a Mac, you may need **Fn + F1…F6**; the
 terminal must send function keys instead of consuming them as app shortcuts.
 The command equivalents always work: `cheat tmux`, `cheat vim`, `cheat grep`,
-`cheat aliases`, `cheat git`. Inside the editor,
+`cheat aliases`, `cheat git`, `cheat agents`. Inside the editor,
 `:call ShellKitSheet('vim', 0)` is available.
 
 In **enhanced mode**, tmux sheets stack on the **left**, work stays on the **right**, and opening
@@ -91,7 +92,7 @@ unchecks those dependent integrations. The preview shows the complete selection.
 | Component | Vanilla dependencies | Enhanced additions |
 |---|---|---|
 | Shell helpers / configs | Bash, awk, grep, find, sort, tr | None; uses rg when available |
-| References / shell F1–F5 | Bash, cat; less optional | Python 3, less, private Rich environment |
+| References / shell F1–F6 | Bash, cat; less optional | Python 3, less, private Rich environment |
 | Tmux keys / session picker | References, tmux >=3.2 | fzf |
 | Vim / Neovim references | References, Vim with scripting or Neovim | None |
 | Agent reference skill | Standard file utilities | None |
@@ -253,7 +254,7 @@ cheat list              # list all sheets
 Add `sheets/NAME.md` to get `cheat NAME`; no registry or build step is needed.
 Keep lines at most 80 characters, put daily shortcuts first, group arrow
 navigation on one line, and link to official documentation for deeper topics.
-F1–F5 are the initial bindings; new sheets don't consume keys automatically.
+F1–F6 are the initial bindings; new sheets don't consume keys automatically.
 
 The `tmux-reference` skill is linked into standard Codex, Claude, shared agents,
 Gemini and Antigravity discovery directories by the installer. Other harnesses
@@ -297,7 +298,7 @@ or `python3 -B tests/pty_check.py vanilla`.
 Checks use a temporary HOME and isolated tmux socket, never the live server.
 Use `SHELL_KIT_TEST_BASH=/path/to/bash` for installer/selector checks, and put
 that Bash binary first in PATH to exercise its function-key bindings.
-On Bash 3.2, F1-F5 use internal Ctrl-X1 through Ctrl-X5 Readline macros to avoid
+On Bash 3.2, F1-F6 use internal Ctrl-X1 through Ctrl-X6 Readline macros to avoid
 that version's limit on long `bind -x` key sequences.
 Reference sources: [tmux manual](https://man.openbsd.org/tmux.1),
 [Vim help](https://vimhelp.org/), and

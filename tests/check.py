@@ -70,9 +70,9 @@ tmux_source = (ROOT / 'integrations/tmux.conf').read_text()
 vim_source = (ROOT / 'integrations/vim.vim').read_text()
 lesskey_source = (ROOT / 'integrations/lesskey').read_text()
 compiled_keys = (ROOT / 'integrations/less.keys').read_bytes()
-for offset, (key, topic) in enumerate(
-        [('F1', 'tmux'), ('F2', 'vim'), ('F3', 'grep'), ('F4', 'aliases'), ('F5', 'git')]):
-    code = 11 + offset
+for key, topic, code in [
+        ('F1', 'tmux', 11), ('F2', 'vim', 12), ('F3', 'grep', 13),
+        ('F4', 'aliases', 14), ('F5', 'git', 15), ('F6', 'agents', 17)]:
     assert (ROOT / 'sheets' / (topic + '.md')).exists(), topic
     assert 'function _sk_%s ' % topic in shell_source, key
     assert '"\\e[%d~"' % code in shell_source, (key, 'bash binding')
@@ -133,10 +133,10 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         capture = ''
         for _ in range(100):
             capture = tm('capture-pane', '-e', '-p', '-t', help_id)
-            if 'focus pane' in capture and 'q/F1-F5 close' in capture:
+            if 'focus pane' in capture and 'q/F1-F6 close' in capture:
                 break
             time.sleep(.02)
-        assert 'q/F1-F5 close' in capture, 'pager footer lost its close instructions'
+        assert 'q/F1-F6 close' in capture, 'pager footer lost its close instructions'
         assert '\x1b[34m' in capture, 'caller light theme lost to dark server environment'
         assert [r[0] for r in rows() if r[3] == '1'] == [pane], 'opening stole focus'
         cheat('tmux')

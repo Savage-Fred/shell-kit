@@ -1,6 +1,7 @@
 # git · see the state, then change it
 
 **F5** toggle this sheet · F1 tmux · F2 vim · F3 grep · F4 aliases\
+F6 agents\
 Read `status` and `diff` before every commit. Check the branch you are on.
 
 ## Reach first
@@ -44,6 +45,13 @@ git fetch --prune               # update remotes, drop deleted ones
 ```
 
 `switch` and `restore` replace the overloaded `checkout`; both still work.
+
+For concurrent work, make a separate checkout without moving the current one:
+
+```sh
+git worktree add -b fix/issue ../fix-issue main
+git worktree list
+```
 
 ## Undo, in increasing severity
 
@@ -97,8 +105,8 @@ you want when hunting where something appeared or vanished.
 ```sh
 git log --oneline origin/main..HEAD   # what you are about to send
 git diff origin/main...HEAD           # the whole change, as reviewed
-git push --force-with-lease           # safer force; see the note below
+git push                              # send the reviewed branch
 ```
 
-Never plain `--force` on a shared branch. `--force-with-lease` aborts if
-someone else pushed since your last fetch.
+Avoid rewriting shared history. If a force push is necessary on your own
+branch, use `--force-with-lease` after fetching; it rejects a changed remote.

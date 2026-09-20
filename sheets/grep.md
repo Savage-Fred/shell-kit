@@ -1,6 +1,7 @@
 # Search · useful answers quickly
 
 **F3** toggle this sheet · F1 tmux · F2 vim · F4 aliases · F5 git\
+F6 agents\
 Quote search text. Helpers below treat it as literal text, not regex.
 
 ## Reach first

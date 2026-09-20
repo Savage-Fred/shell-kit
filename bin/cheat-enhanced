@@ -131,7 +131,7 @@ def view(topic):
         key = ROOT / 'integrations/less.keys'
         if key.exists():
             env['LESSKEY'] = str(key)
-        sp.run(['less', '-R', '-i', '-+F', '-+X', '+g', '-P', 'Sheila | q/F1-F5 close | ↑↓ scroll | / search | g top', str(path)], env=env, check=False)
+        sp.run(['less', '-R', '-i', '-+F', '-+X', '+g', '-P', 'Sheila | q/F1-F6 close | ↑↓ scroll | / search | g top', str(path)], env=env, check=False)
 
 def tip():
     lines = [line.rstrip('\\').strip().replace('`', '').replace('Prefix', 'Ctrl-b') for line in (ROOT / 'sheets/tmux.md').read_text().splitlines() if line.startswith('`Prefix ')]
