@@ -75,19 +75,22 @@ def main():
             try:
                 if name != 'vim':
                     until(lambda: b'KEYTEST>' in output, 'shell prompt absent')
-                    for topic, key in [('tmux', b'\x1bOP'), ('vim', b'\x1bOQ')]:
+                    for topic, key in [('tmux', b'\x1bOP'), ('vim', b'\x1bOQ'),
+                                       ('agents', b'\x1b[17~')]:
                         result = home / (name + '-' + topic)
                         send(('printf preserved > ' + str(result)).encode())
                         output.clear()
                         send(key)
-                        until(lambda: (b'stay oriented' if topic == 'tmux' else b'move, select') in output,
+                        marker = {'tmux': b'stay oriented', 'vim': b'move, select',
+                                  'agents': b'keep work reviewable'}[topic]
+                        until(lambda: marker in output,
                               name + ': ' + topic + ' viewer did not open')
                         send(key)
                         time.sleep(.2)
                         send(b'\r')
                         until(result.exists, name + ': F-key failed to return pending shell command')
                         assert result.read_text() == 'preserved'
-                    print('PASS: ' + name + ' F1/F2 open-close preserves pending command')
+                    print('PASS: ' + name + ' F1/F2/F6 preserve pending command')
                 else:
                     until(lambda: b'edited' in output, 'Vim not ready')
                     send(b'ibefore')
@@ -96,10 +99,16 @@ def main():
                           'Vim F2 did not open reference')
                     send(b'after\x1bOQ')
                     time.sleep(.2)
+                    output.clear()
+                    send(b'\x1b[17~')
+                    until(lambda: b'Agent harnesses' in output,
+                          'Vim F6 did not open agent reference')
+                    send(b'\x1b[17~')
+                    time.sleep(.2)
                     send(b'\x1b:wq\r')
                     until(lambda: (home / 'edited').exists(), 'Vim did not save after F2 toggle')
                     assert (home / 'edited').read_text() == 'beforeafter\n', 'Vim focus or insert text lost'
-                    print('PASS: standalone Vim real F2 toggle preserves insert text and work focus')
+                    print('PASS: standalone Vim F2/F6 preserve insert text and focus')
             except AssertionError as exc:
                 failures.append(name + ': ' + str(exc))
                 print('FAIL: ' + failures[-1])

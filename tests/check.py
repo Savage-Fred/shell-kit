@@ -36,8 +36,51 @@ with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', P
         else:
             raise AssertionError('active-client hook error was hidden')
 
+# A forgotten topic or hook argument stays a cheat: message, never a raw traceback.
+with tempfile.TemporaryDirectory(prefix='shell-kit-args-') as tmp:
+    bare = dict(os.environ, HOME=tmp)
+    bare.pop('TMUX', None)
+    bare.pop('TMUX_PANE', None)
+    in_tmux = dict(bare, TMUX=tmp + '/absent.sock,0,0', TMUX_PANE='%0')
+    for missing, environment in [(['view'], bare), (['edit'], bare), (['open'], bare), (['close'], bare),
+                                 (['auto'], bare), (['cleanup'], bare), (['close-owner'], in_tmux)]:
+        done = sp.run([str(ROOT / 'bin/cheat'), *missing], env=environment, text=True,
+                      stdout=sp.PIPE, stderr=sp.PIPE)
+        assert done.returncode == 1, (missing, done.returncode, done.stderr)
+        assert done.stderr.startswith('cheat: ') and 'Traceback' not in done.stderr, (missing, done.stderr)
+# A recycled tty must not inherit a months-old help policy. Expiry also keeps
+# the record directory from accumulating entries for ttys that are long gone.
+with tempfile.TemporaryDirectory() as state, patch.object(controller, 'STATE', Path(state)):
+    current, expired = Path(state) / 'client-current', Path(state) / 'client-expired'
+    current.write_text('desktop')
+    expired.write_text('desktop')
+    past = time.time() - (controller.CLIENT_RECORD_DAYS + 1) * 86400
+    os.utime(expired, (past, past))
+    controller.expire_clients()
+    assert current.exists(), 'expiry removed a record still inside its window'
+    assert not expired.exists(), 'expiry kept a record past its window'
+
 for sheet in (ROOT / 'sheets').glob('*.md'):
     assert all(len(line) <= 80 for line in sheet.read_text().splitlines()), sheet
+
+# A function key is only usable when every integration agrees about it. Wiring
+# one of the five and forgetting another is the failure mode when adding a sheet.
+shell_source = (ROOT / 'integrations/shell.sh').read_text()
+tmux_source = (ROOT / 'integrations/tmux.conf').read_text()
+vim_source = (ROOT / 'integrations/vim.vim').read_text()
+lesskey_source = (ROOT / 'integrations/lesskey').read_text()
+compiled_keys = (ROOT / 'integrations/less.keys').read_bytes()
+for key, topic, code in [
+        ('F1', 'tmux', 11), ('F2', 'vim', 12), ('F3', 'grep', 13),
+        ('F4', 'aliases', 14), ('F5', 'git', 15), ('F6', 'agents', 17)]:
+    assert (ROOT / 'sheets' / (topic + '.md')).exists(), topic
+    assert 'function _sk_%s ' % topic in shell_source, key
+    assert '"\\e[%d~"' % code in shell_source, (key, 'bash binding')
+    assert "'\\e[%d~' _sk_%s" % (code, topic) in shell_source, (key, 'zsh binding')
+    assert 'bind-key -n %s ' % key in tmux_source, (key, 'tmux binding')
+    assert "['%s','%s']" % (key, topic) in vim_source, (key, 'vim binding')
+    assert '\\e[%d~ quit' % code in lesskey_source, (key, 'lesskey source')
+    assert b'\x1b[%d~' % code in compiled_keys, (key, 'compiled less.keys is stale')
 
 with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
     home = Path(tmp)
@@ -90,10 +133,10 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         capture = ''
         for _ in range(100):
             capture = tm('capture-pane', '-e', '-p', '-t', help_id)
-            if 'focus pane' in capture and 'q/F1-F4 close' in capture:
+            if 'focus pane' in capture and 'q/F1-F6 close' in capture:
                 break
             time.sleep(.02)
-        assert 'q/F1-F4 close' in capture, 'pager footer lost its close instructions'
+        assert 'q/F1-F6 close' in capture, 'pager footer lost its close instructions'
         assert '\x1b[34m' in capture, 'caller light theme lost to dark server environment'
         assert [r[0] for r in rows() if r[3] == '1'] == [pane], 'opening stole focus'
         cheat('tmux')

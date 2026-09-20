@@ -1,6 +1,7 @@
 # Aliases & functions · discover what you already have
 
-**F4** toggle this sheet · F1 tmux · F2 vim · F3 grep
+**F4** toggle this sheet · F1 tmux · F2 vim · F3 grep · F5 git\
+F6 agents
 
 ## Reach first
 

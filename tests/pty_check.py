@@ -102,6 +102,9 @@ def main():
                 result = home / 'preserved'
                 os.write(fd, ('printf intact > ' + shlex.quote(str(result))).encode())
                 until(lambda: str(result) in tm('capture-pane', '-p'), 'pending command did not reach shell')
+                # tmux can show the new shell before its client starts taking
+                # root-table keys; give that first attach a moment to settle.
+                time.sleep(.2)
                 os.write(fd, b'\x1bOP')
                 until(lambda: b'stay oriented' in terminal_output, 'vanilla tmux popup did not open')
                 terminal_output.clear()

@@ -5,8 +5,9 @@ ROOT=$(cd "$(dirname "$0")" && pwd -P)
 STATE="$HOME/.local/state/shell-kit"
 LINK="$HOME/.local/share/shell-kit"
 RUNTIME="$HOME/.local/share/shell-kit-runtime/bin"
+backup_keep=10
 names=(helpers references tmux vim skill)
-labels=('Shell helpers and config tree' 'References and shell F1-F4 keys' 'Tmux keys and session picker' 'Vim / Neovim references' 'Agent reference skill')
+labels=('Shell helpers and config tree' 'References and shell F1-F6 keys' 'Tmux keys and session picker' 'Vim / Neovim references' 'Agent reference skill')
 selected=(0 0 0 0 0)
 mode=vanilla
 yes=0 dry=0 interactive=1 uninstall=0
@@ -86,7 +87,7 @@ if chosen 2 || chosen 3; then selected[1]=1; fi
 
 dependencies() {
     local failed=0 tool version
-    for tool in awk cat cmp cp dirname grep ln mkdir mktemp mv readlink rm tail; do
+    for tool in awk cat cmp cp date dirname grep ln mkdir mktemp mv readlink rm tail; do
         if ! has "$tool"; then printf 'Missing standard tool: %s\n' "$tool"; failed=1; fi
     done
     if chosen 2; then
@@ -117,7 +118,7 @@ if [ "$interactive" = 1 ]; then
     [ -t 0 ] && [ -t 1 ] || die 'Use a terminal, or --components with --dry-run / --yes.'
     has stty || die 'Interactive selection needs stty; use --components instead.'
     terminal=$(stty -g < /dev/tty)
-    stty -echo -icanon min 1 time 0 < /dev/tty
+    stty -echo -icanon -isig min 1 time 0 < /dev/tty
     printf '\033[?25l'
     cursor=0
     while :; do
@@ -148,7 +149,7 @@ if [ "$interactive" = 1 ]; then
                 if [ "$cursor" = 1 ] && ! chosen 1; then selected[2]=0; selected[3]=0; fi
                 if chosen 2 || chosen 3; then selected[1]=1; fi ;;
             m|M) if [ "$mode" = vanilla ]; then mode=enhanced; else mode=vanilla; fi ;;
-            q|Q) exit 0 ;;
+            q|Q|$'\003') exit 0 ;;
             '') if dependencies >/dev/null; then break; fi ;;
         esac
     done
@@ -321,7 +322,7 @@ if [ "$mode" = enhanced ] && chosen 1; then
         printf '  Create/repair private .venv and install Rich using pip (network required).\n'
     fi
 fi
-printf 'Backups will be retained in %s/backups.\n' "$STATE"
+printf 'Backups of replaced files are kept in %s/backups (newest %s runs).\n' "$STATE" "$backup_keep"
 if [ "$dry" = 1 ]; then exit 0; fi
 if [ "$yes" != 1 ]; then
     [ -t 0 ] || die 'Nothing changed. Use --yes to apply a reviewed plan noninteractively.'
@@ -334,8 +335,37 @@ if [ "$setup_rich" = 1 ]; then
     python3 -m venv "$ROOT/.venv"
     "$ROOT/.venv/bin/python" -m pip install -r "$ROOT/requirements.txt"
 fi
-mkdir -p "$STATE/backups"
-backup=$(mktemp -d "$STATE/backups/install.XXXXXX")
+# The state directory always exists from here on; install.tsv is written into
+# it even when no file needs replacing. Only the backup directory is lazy, so
+# a rerun that changes nothing leaves nothing behind.
+mkdir -p "$STATE"
+backup=''
+ensure_backup() {
+    [ -z "$backup" ] || return 0
+    mkdir -p "$STATE/backups"
+    backup=$(mktemp -d "$STATE/backups/install.$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
+}
+prune_backups() {
+    local path oldest
+    local kept=() next=()
+    for path in "$STATE"/backups/install.*; do
+        [ ! -d "$path" ] || kept+=("$path")
+    done
+    while [ "${#kept[@]}" -gt "$backup_keep" ]; do
+        oldest=''
+        for path in "${kept[@]}"; do
+            [ "$path" = "$backup" ] && continue
+            if [ -z "$oldest" ] || [ "$path" -ot "$oldest" ]; then oldest=$path; fi
+        done
+        [ -n "$oldest" ] || break
+        rm -rf "$oldest"
+        next=()
+        for path in "${kept[@]}"; do
+            [ "$path" = "$oldest" ] || next+=("$path")
+        done
+        kept=("${next[@]}")
+    done
+}
 for ((i=0; i<${#paths[@]}; i++)); do
     target=${targets[$i]}
     if cmp -s "$target" "${staged[$i]}"; then continue; fi
@@ -344,6 +374,7 @@ for ((i=0; i<${#paths[@]}; i++)); do
     temp=$(mktemp "$target.shell-kit.XXXXXX")
     pending=$temp
     if [ -f "$target" ]; then
+        ensure_backup
         cp -p "$target" "$backup/$i"
         printf '%s\t%s\n' "$i" "$target" >> "$backup/files.tsv"
         cp -p "$target" "$temp"
@@ -369,5 +400,8 @@ done
     done
 } > "$work/install.tsv"
 mv "$work/install.tsv" "$STATE/install.tsv"
-printf 'Saved. Backups: %s\nOpen a new shell/editor. Reload tmux config for added bindings.\n' "$backup"
+if [ -n "$backup" ]; then prune_backups; fi
+if [ -n "$backup" ]; then printf 'Saved. Backups: %s\n' "$backup"
+else printf 'Saved. No existing file needed a backup.\n'; fi
+printf 'Open a new shell/editor. Reload tmux config for added bindings.\n'
 printf 'Removed bindings already loaded in a running program clear on its next restart.\n'

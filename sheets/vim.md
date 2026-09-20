@@ -1,6 +1,7 @@
 # Vim · move, select, edit
 
-**F2** toggle this sheet · F1 tmux · F3 grep · F4 aliases\
+**F2** toggle this sheet · F1 tmux · F3 grep · F4 aliases · F5 git\
+F6 agents
 **Esc** returns to Normal mode. `Ctrl-x` means hold Ctrl and press x.
 
 ## Reach first · Normal mode

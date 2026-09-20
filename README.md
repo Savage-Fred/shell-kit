@@ -17,11 +17,14 @@ manager. Enhanced rendering and automatic sidebars are optional.
 | **F2** | Vim |
 | **F3** | grep / ripgrep |
 | **F4** | aliases and functions |
+| **F5** | git |
+| **F6** | agent harnesses |
 
-Press the same key to close. On a Mac, you may need **Fn + F1…F4**; the
+Press the same key to close. On a Mac, you may need **Fn + F1…F6**; the
 terminal must send function keys instead of consuming them as app shortcuts.
 The command equivalents always work: `cheat tmux`, `cheat vim`, `cheat grep`,
-`cheat aliases`. Inside the editor, `:call ShellKitSheet('vim', 0)` is available.
+`cheat aliases`, `cheat git`, `cheat agents`. Inside the editor,
+`:call ShellKitSheet('vim', 0)` is available.
 
 In **enhanced mode**, tmux sheets stack on the **left**, work stays on the **right**, and opening
 help keeps your typing focus. Move into help with `Ctrl-b ←`; use arrows,
@@ -89,7 +92,7 @@ unchecks those dependent integrations. The preview shows the complete selection.
 | Component | Vanilla dependencies | Enhanced additions |
 |---|---|---|
 | Shell helpers / configs | Bash, awk, grep, find, sort, tr | None; uses rg when available |
-| References / shell F1–F4 | Bash, cat; less optional | Python 3, less, private Rich environment |
+| References / shell F1–F6 | Bash, cat; less optional | Python 3, less, private Rich environment |
 | Tmux keys / session picker | References, tmux >=3.2 | fzf |
 | Vim / Neovim references | References, Vim with scripting or Neovim | None |
 | Agent reference skill | Standard file utilities | None |
@@ -121,6 +124,9 @@ and permissions. The installer checks all blocks for malformed markers and
 validates destinations before changing configs. Backups and a `files.tsv` index
 are kept in `~/.local/state/shell-kit/backups/install.*`; the index maps each
 numbered backup to the original target path. Do not share these private backups.
+A backup directory is created only when a file is actually replaced, so a rerun
+that changes nothing leaves none; the ten most recent are kept by directory
+modification time, including backups from older shell-kit versions.
 Unexpected write failures can leave some components applied; retain the reported
 backups, correct the filesystem problem, and rerun the same selection.
 
@@ -173,7 +179,10 @@ explicit profile in the remote terminal startup command, then start a login
 shell. SSH doesn't provide a trustworthy device-type label automatically.
 Unknown remote clients default to no automatic help. The registration uses the
 outer shell's TTY, so a detached session doesn't retain the first client's
-identity forever.
+identity forever. Because the system reuses TTY names, a registration expires
+after 30 days rather than handing an old profile to a new client on the same
+TTY; a shell open longer than that loses automatic help until you rerun
+`cheat register`.
 
 ## Helpers
 
@@ -246,7 +255,7 @@ cheat list              # list all sheets
 Add `sheets/NAME.md` to get `cheat NAME`; no registry or build step is needed.
 Keep lines at most 80 characters, put daily shortcuts first, group arrow
 navigation on one line, and link to official documentation for deeper topics.
-F1–F4 are the initial bindings; new sheets don't consume keys automatically.
+F1–F6 are the initial bindings; new sheets don't consume keys automatically.
 
 The `tmux-reference` skill is linked into standard Codex, Claude, shared agents,
 Gemini and Antigravity discovery directories by the installer. Other harnesses
@@ -260,36 +269,37 @@ keyboard input or create an extra pane. Phone profiles don't auto-open help.
 
 ## Verify
 
-Installer checks use Python for the test harness, not for installation:
+One command runs every check this machine can support:
 
 ```sh
-python3 -B tests/install_check.py
-python3 -B tests/install_keys.py
-python3 -B tests/configs_check.py
+python3 -B tests/run_all.py
 ```
 
-Vanilla integration checks additionally need tmux, less and an editor:
+Python is the test harness only, never part of installation. A missing optional
+dependency is reported as a skip with its reason, not a failure, so the same
+command is correct on a machine without tmux, fzf or the Rich environment.
+
+| Tier | Additionally needs | Suites |
+|---|---|---|
+| Installer and scanner | Bash, standard Unix tools | `install_check`, `install_keys`, `configs_check`, `legacy` |
+| Vanilla integration | tmux >= 3.2, less, an editor | `pty_check:vanilla`, `shell_keys:vanilla` |
+| Enhanced | fzf, the private Rich environment | `render_check`, `check`, `pty_check:enhanced`, `shell_keys:enhanced` |
+
+Name fragments select a subset, and a wedged PTY suite is capped rather than
+left to hang:
 
 ```sh
-python3 -B tests/shell_keys.py vanilla
-python3 -B tests/pty_check.py vanilla
+python3 -B tests/run_all.py configs render
+SHELL_KIT_TEST_TIMEOUT=120 python3 -B tests/run_all.py
 ```
 
-The existing enhanced checks additionally need tmux, fzf, less, an editor, and
-the private Rich environment prepared through the enhanced installation option:
-
-```sh
-python3 tests/render_check.py
-python3 tests/check.py
-python3 tests/pty_check.py
-python3 tests/shell_keys.py
-python3 -m unittest discover -s legacy/homelab-shell/scripts -p 'test_*.py'
-```
+Every suite remains a standalone script, for example `python3 -B tests/check.py`
+or `python3 -B tests/pty_check.py vanilla`.
 
 Checks use a temporary HOME and isolated tmux socket, never the live server.
 Use `SHELL_KIT_TEST_BASH=/path/to/bash` for installer/selector checks, and put
 that Bash binary first in PATH to exercise its function-key bindings.
-On Bash 3.2, F1-F4 use internal Ctrl-X1 through Ctrl-X4 Readline macros to avoid
+On Bash 3.2, F1-F6 use internal Ctrl-X1 through Ctrl-X6 Readline macros to avoid
 that version's limit on long `bind -x` key sequences.
 Reference sources: [tmux manual](https://man.openbsd.org/tmux.1),
 [Vim help](https://vimhelp.org/), and
