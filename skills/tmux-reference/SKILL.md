@@ -34,7 +34,7 @@ is manual-only and uses native popups instead of automatic sidebars:
 - A Vim exit closes only the sheet created automatically for that editor owner.
 - Unknown remote clients and phone profiles do not automatically open help.
 - Client addresses and machine settings belong in local config, never the repo.
-- F1/F2/F3/F4 are consistent across shell, tmux and editor. Terminal apps must
+- F1/F2/F3/F4/F5 are consistent across shell, tmux and editor. Terminal apps
   transmit them; a harness cannot override OS-reserved keys.
 
 Run `python3 -B tests/install_check.py` for installer changes. For enhanced

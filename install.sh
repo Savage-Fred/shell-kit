@@ -7,7 +7,7 @@ LINK="$HOME/.local/share/shell-kit"
 RUNTIME="$HOME/.local/share/shell-kit-runtime/bin"
 backup_keep=10
 names=(helpers references tmux vim skill)
-labels=('Shell helpers and config tree' 'References and shell F1-F4 keys' 'Tmux keys and session picker' 'Vim / Neovim references' 'Agent reference skill')
+labels=('Shell helpers and config tree' 'References and shell F1-F5 keys' 'Tmux keys and session picker' 'Vim / Neovim references' 'Agent reference skill')
 selected=(0 0 0 0 0)
 mode=vanilla
 yes=0 dry=0 interactive=1 uninstall=0
