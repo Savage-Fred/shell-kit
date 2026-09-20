@@ -118,7 +118,7 @@ if [ "$interactive" = 1 ]; then
     [ -t 0 ] && [ -t 1 ] || die 'Use a terminal, or --components with --dry-run / --yes.'
     has stty || die 'Interactive selection needs stty; use --components instead.'
     terminal=$(stty -g < /dev/tty)
-    stty -echo -icanon min 1 time 0 < /dev/tty
+    stty -echo -icanon -isig min 1 time 0 < /dev/tty
     printf '\033[?25l'
     cursor=0
     while :; do
@@ -149,7 +149,7 @@ if [ "$interactive" = 1 ]; then
                 if [ "$cursor" = 1 ] && ! chosen 1; then selected[2]=0; selected[3]=0; fi
                 if chosen 2 || chosen 3; then selected[1]=1; fi ;;
             m|M) if [ "$mode" = vanilla ]; then mode=enhanced; else mode=vanilla; fi ;;
-            q|Q) exit 0 ;;
+            q|Q|$'\003') exit 0 ;;
             '') if dependencies >/dev/null; then break; fi ;;
         esac
     done

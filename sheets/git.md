@@ -23,7 +23,7 @@ git log --oneline -10   # recent history, one line each
 
 ```sh
 git diff --stat                 # files and +/- counts, no content
-git diff main...HEAD            # your work only, ignoring main's new commits
+git diff origin/main...HEAD     # your work since the fetched base
 git diff HEAD~1 -- path/to/file # one file, against the previous commit
 git show HEAD                   # the last commit, message and patch
 git log -p -- path/to/file      # every change to one file
@@ -49,7 +49,8 @@ git fetch --prune               # update remotes, drop deleted ones
 For concurrent work, make a separate checkout without moving the current one:
 
 ```sh
-git worktree add -b fix/issue ../fix-issue main
+git fetch origin
+git worktree add -b fix/issue ../fix-issue origin/main
 git worktree list
 ```
 
@@ -64,8 +65,9 @@ git reset --soft HEAD~1         # undo the commit, keep changes staged
 git reset --hard <sha>          # DISCARDS working tree; no undo
 ```
 
-`revert` is the safe choice on anything already pushed. Before any `--hard`,
-run `git stash` or note the sha from `git log`, so there is a way back.
+`revert` is the safe choice on anything already pushed. Before `--hard`,
+stash uncommitted work with `git stash push -u` or commit it. A commit SHA
+or reflog entry only recovers commits, not discarded working-tree edits.
 
 ## Recover from a mistake
 
