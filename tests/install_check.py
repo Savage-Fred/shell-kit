@@ -50,15 +50,15 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     # Old versions used random names. Sort by age, never their lexical names;
     # the fresh timestamped backup must survive migration.
     for index in range(14):
-        legacy = backups / 'install.{:06d}'.format(index)
+        legacy = backups / 'install.Z{:05d}'.format(index)
         legacy.mkdir()
         os.utime(legacy, (946684800 + index, 946684800 + index))
     (home / '.bashrc').write_bytes(installed + b'# drift\n')
     run(*args, '--yes')
     remaining = sorted(path.name for path in backups.iterdir())
     assert len(remaining) == 10, remaining
-    assert 'install.000005' not in remaining, remaining
-    assert 'install.000006' in remaining, remaining
+    assert 'install.Z00005' not in remaining, remaining
+    assert 'install.Z00006' in remaining, remaining
     assert any(name not in after_install and name.startswith('install.20')
                for name in remaining), remaining
     (home / '.bashrc').write_bytes(installed)
