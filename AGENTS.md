@@ -32,9 +32,10 @@ optional and any pip installation must be included in the approved plan.
   modes. Validate the entire config plan before writing any user config.
 - Tests use temporary HOME directories and isolated tmux sockets. Never run a
   test against the owner's live configs/server or install dependencies silently.
-- Run `python3 -B tests/install_check.py` and `python3 -B tests/install_keys.py`
-  for installer changes. Run the relevant enhanced tests listed in README.md
-  when touching integrations. Report which OS and Bash versions were exercised.
+- Run `python3 -B tests/run_all.py` before proposing a change; it runs every
+  suite this machine supports and skips the rest with a reason. Name fragments
+  select a subset (`run_all.py install`) while iterating. Report which OS and
+  Bash versions were exercised, and never treat a skip as a pass.
 - Do not weaken privacy, error handling, terminal cleanup, or meaningful checks
   to shorten the code. Do not add services, daemons or configuration frameworks.
 

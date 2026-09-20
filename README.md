@@ -267,31 +267,32 @@ keyboard input or create an extra pane. Phone profiles don't auto-open help.
 
 ## Verify
 
-Installer checks use Python for the test harness, not for installation:
+One command runs every check this machine can support:
 
 ```sh
-python3 -B tests/install_check.py
-python3 -B tests/install_keys.py
-python3 -B tests/configs_check.py
+python3 -B tests/run_all.py
 ```
 
-Vanilla integration checks additionally need tmux, less and an editor:
+Python is the test harness only, never part of installation. A missing optional
+dependency is reported as a skip with its reason, not a failure, so the same
+command is correct on a machine without tmux, fzf or the Rich environment.
+
+| Tier | Additionally needs | Suites |
+|---|---|---|
+| Installer and scanner | Bash, standard Unix tools | `install_check`, `install_keys`, `configs_check`, `legacy` |
+| Vanilla integration | tmux >= 3.2, less, an editor | `pty_check:vanilla`, `shell_keys:vanilla` |
+| Enhanced | fzf, the private Rich environment | `render_check`, `check`, `pty_check:enhanced`, `shell_keys:enhanced` |
+
+Name fragments select a subset, and a wedged PTY suite is capped rather than
+left to hang:
 
 ```sh
-python3 -B tests/shell_keys.py vanilla
-python3 -B tests/pty_check.py vanilla
+python3 -B tests/run_all.py configs render
+SHELL_KIT_TEST_TIMEOUT=120 python3 -B tests/run_all.py
 ```
 
-The existing enhanced checks additionally need tmux, fzf, less, an editor, and
-the private Rich environment prepared through the enhanced installation option:
-
-```sh
-python3 tests/render_check.py
-python3 tests/check.py
-python3 tests/pty_check.py
-python3 tests/shell_keys.py
-python3 -m unittest discover -s legacy/homelab-shell/scripts -p 'test_*.py'
-```
+Every suite remains a standalone script, for example `python3 -B tests/check.py`
+or `python3 -B tests/pty_check.py vanilla`.
 
 Checks use a temporary HOME and isolated tmux socket, never the live server.
 Use `SHELL_KIT_TEST_BASH=/path/to/bash` for installer/selector checks, and put
