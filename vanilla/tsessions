@@ -7,8 +7,8 @@ fields=$'#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_act
 
 select_rows() {
     # Tier 1 exact name, tier 2 name prefix, tier 3 name/command/path substring.
-    tmux list-sessions -F "$fields" 2>/dev/null | awk -F'\t' -v pat="$1" '
-        BEGIN { pat = tolower(pat) }
+    tmux list-sessions -F "$fields" 2>/dev/null | SK_PATTERN=$1 awk -F'\t' '
+        BEGIN { pat = tolower(ENVIRON["SK_PATTERN"]) }
         {
             if (pat == "") tier = 3
             else if (tolower($1) == pat) tier = 1
@@ -29,11 +29,13 @@ render() {
             return int(s / 86400) "d"
         }
         function shorten(p) {
-            if (home != "" && index(p, home) == 1) return "~" substr(p, length(home) + 1)
+            if (home == "") return p
+            if (p == home) return "~"
+            if (index(p, home "/") == 1) return "~" substr(p, length(home) + 1)
             return p
         }
         BEGIN { printf "  %-14s %3s %6s  %-12s %s\n", "SESSION", "WIN", "IDLE", "RUNNING", "PATH" }
-        { printf "%s %-14s %3s %6s  %-12s %s\n", ($3 == "1" ? "*" : " "), $2, $4, idle($5), $6, shorten($7) }'
+        { printf "%s %-14s %3s %6s  %-12s %s\n", ($3 + 0 > 0 ? "*" : " "), $2, $4, idle($5), $6, shorten($7) }'
 }
 
 # Print the single session a pattern identifies, or explain why it does not.
@@ -62,6 +64,9 @@ case $action in
     *) action=list ;;
 esac
 pattern=${1-}
+case $pattern in
+    -h|--help) printf 'usage: tsessions [list|attach|which] [PATTERN]\n'; exit 0 ;;
+esac
 
 tmux list-sessions >/dev/null 2>&1 || {
     printf 'No sessions yet. Create one with: tn NAME\n' >&2
@@ -80,7 +85,11 @@ case $action in
     attach)
         if [ -z "$pattern" ]; then
             # tmux already tracks the most recent session; let it choose.
-            if [ -n "${TMUX-}" ]; then exec tmux switch-client -l; else exec tmux attach-session; fi
+            [ -n "${TMUX-}" ] || exec tmux attach-session
+            tmux switch-client -l 2>/dev/null && exit 0
+            printf 'No previous session to return to; name one:\n' >&2
+            select_rows '' | render >&2
+            exit 1
         fi
         name=$(resolve "$pattern") || exit 1
         if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "$name"; else exec tmux attach-session -t "$name"; fi

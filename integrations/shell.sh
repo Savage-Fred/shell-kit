@@ -49,6 +49,9 @@ fi
 if ! type tl >/dev/null 2>&1; then
     function tl {
         if command -v tsessions >/dev/null 2>&1; then command tsessions list "$@"
+        elif [ "$#" -gt 0 ]; then
+            printf 'tl: searching needs tsessions; re-run shell-kit install.sh\n' >&2
+            return 1
         else command tmux list-sessions; fi
     }
 fi

@@ -9,6 +9,8 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = str(ROOT / 'vanilla/tsessions')
+# Honour the runner's shell so a Bash 3.2 regression cannot hide behind a pass.
+BASH = os.environ.get('SHELL_KIT_TEST_BASH', '/bin/bash')
 
 
 def main():
@@ -21,7 +23,7 @@ def main():
         env.pop('TMUX_PANE', None)
 
         def run(*args):
-            return sp.run(['bash', SCRIPT, *args], env=env, text=True,
+            return sp.run([BASH, SCRIPT, *args], env=env, text=True,
                           capture_output=True)
 
         def tm(*args, check=True):
@@ -61,11 +63,42 @@ def main():
             assert by_path.returncode == 0, by_path.stderr
             assert by_path.stdout.strip() == 'beta', by_path.stdout
 
+            # A pattern is data: awk -v would eat its backslash escapes.
+            escaped = run('list', 'a\\lpha')
+            assert 'warning' not in escaped.stderr, escaped.stderr
+            assert escaped.returncode == 1, escaped.stdout
+
+            # --help has to survive the subcommand tl/ta inject ahead of it.
+            helped = run('list', '--help')
+            assert helped.returncode == 0, helped.stderr
+            assert 'usage:' in helped.stdout, helped.stdout
+
+            # Only tmux can say which session is last; without a client, say so.
+            # TMUX names the socket, so it must point at this isolated server.
+            socket = tm('display-message', '-p', '#{socket_path}').stdout.strip()
+            env['TMUX'] = '%s,0,0' % socket
+            stranded = run('attach')
+            env.pop('TMUX')
+            assert stranded.returncode == 1, stranded.stdout
+            assert 'No previous session' in stranded.stderr, stranded.stderr
+
             missing = run('which', 'nosuchsession')
             assert missing.returncode == 1, missing.stdout
             assert 'No session matches' in missing.stderr, missing.stderr
             # The failure still shows what is available.
             assert 'alpha' in missing.stderr, missing.stderr
+            # HOME abbreviation must respect a path boundary: a sibling
+            # directory sharing the HOME prefix is not inside HOME.
+            sibling = Path(str(home) + 'ow')
+            sibling.mkdir()
+            try:
+                tm('new-session', '-d', '-s', 'outside', '-c', str(sibling))
+                time.sleep(0.3)  # the pane reports its directory once the shell starts
+                shown = run('list', 'outside')
+                assert '~ow' not in shown.stdout, shown.stdout
+                assert str(sibling) in shown.stdout, shown.stdout
+            finally:
+                sibling.rmdir()
         finally:
             tm('kill-server', check=False)
     print('tsessions checks passed')
