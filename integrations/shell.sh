@@ -46,9 +46,18 @@ if ! type tn >/dev/null 2>&1; then
         else command tmux new-session -s "${1:?usage: tn NAME}"; fi
     }
 fi
+if ! type tl >/dev/null 2>&1; then
+    function tl {
+        if command -v tsessions >/dev/null 2>&1; then command tsessions list "$@"
+        else command tmux list-sessions; fi
+    }
+fi
 if ! type ta >/dev/null 2>&1; then
     function ta {
-        if [ -n "${TMUX-}" ]; then command tmux switch-client -t "${1:?usage: ta NAME}"
+        # No argument reattaches the most recent session; a pattern matches the
+        # session name, the command running in it, or its working directory.
+        if command -v tsessions >/dev/null 2>&1; then command tsessions attach "$@"
+        elif [ -n "${TMUX-}" ]; then command tmux switch-client -t "${1:?usage: ta NAME}"
         else command tmux attach-session -t "${1:?usage: ta NAME}"; fi
     }
 fi

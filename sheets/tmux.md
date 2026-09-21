@@ -30,11 +30,33 @@ clipboard are separate unless clipboard integration is available.
 ## Sessions, without memorizing the picker
 
 ```sh
+tl             # list sessions: windows, idle time, command, path
+tl studio      # search name, running command, or working directory
 tmenu          # roomy session chooser
 tn research    # create named session
-ta research    # attach / switch
+ta research    # attach / switch by name or pattern
+ta             # reattach the most recent session
 td             # detach
 ```
+
+`tl` answers "which session was the build in?" when the names are `0`, `1`, `2`.
+`ta` needs enough of a pattern to be unambiguous; it lists the rivals otherwise.
+
+## Reconnecting from another machine
+
+Log in and use `tl` and `ta` normally, or go straight there in one command.
+Startup files skip non-interactive shells, so name the command in full:
+
+```sh
+sk='$HOME/.local/share/shell-kit-runtime/bin/tsessions'
+ssh HOST -t "$sk attach studio"   # land straight inside that session
+ssh HOST -t "$sk attach"          # most recent session
+ssh HOST "$sk list"               # just look, no terminal needed
+```
+
+`-t` is required to attach: tmux needs a terminal. Landing directly in a session
+means no prefix key is needed to arrive, which matters on a phone keyboard.
+Closing the client leaves the session running; only `td` or `Prefix d` detaches.
 
 ## Small improvements
 

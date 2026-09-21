@@ -89,6 +89,8 @@ SUITES = [
      lambda: absent('awk', 'tr')),
     ('legacy', [sys.executable, '-m', 'unittest', 'discover', '-s',
                 'legacy/homelab-shell/scripts', '-p', 'test_*.py'], lambda: ''),
+    ('tsessions_check', [sys.executable, '-B', 'tests/tsessions_check.py'],
+     absent_tmux),
     ('render_check', [sys.executable, '-B', 'tests/render_check.py'], absent_rich),
     ('check', [sys.executable, '-B', 'tests/check.py'], needs_enhanced),
     ('pty_check:vanilla', [sys.executable, '-B', 'tests/pty_check.py', 'vanilla'],
