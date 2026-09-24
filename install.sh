@@ -233,6 +233,7 @@ add_link "$RUNTIME/cheat" "$source"
 source=''; chosen 0 && source="$ROOT/vanilla/shell-kit-search"; add_link "$RUNTIME/shell-kit-search" "$source"
 source=''; chosen 0 && source="$ROOT/vanilla/configs"; add_link "$RUNTIME/configs" "$source"
 source=''; chosen 2 && source="$source_root/tmenu"; add_link "$RUNTIME/tmenu" "$source"
+source=''; chosen 2 && source="$ROOT/vanilla/tsessions"; add_link "$RUNTIME/tsessions" "$source"
 for base in .agents/skills .codex/skills .claude/skills .gemini/skills .gemini/antigravity/skills; do
     source=''; chosen 4 && source="$ROOT/skills/tmux-reference"
     add_link "$HOME/$base/tmux-reference" "$source"

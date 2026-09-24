@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A roomy native fzf session chooser; cancellation does nothing."""
 import os
+import shutil
 import subprocess as sp
 import sys
 
@@ -16,4 +17,9 @@ except FileNotFoundError:
     sys.exit(1)
 if chosen.returncode == 0:
     target = chosen.stdout.split('\t')[0]
-    os.execvp('tmux', ['tmux', 'switch-client' if os.environ.get('TMUX') else 'attach-session', '-t', target])
+    verb = 'switch-client' if os.environ.get('TMUX') else 'attach-session'
+    # Route through tsessions when present so the server keeps its own systemd
+    # scope and outlives the terminal it was started from.
+    if not os.environ.get('TMUX') and shutil.which('tsessions'):
+        os.execvp('tsessions', ['tsessions', 'run', verb, '-t', target])
+    os.execvp('tmux', ['tmux', verb, '-t', target])
