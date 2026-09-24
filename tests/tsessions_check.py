@@ -2,6 +2,7 @@
 """Session search/resolve checks against an isolated tmux server."""
 import os
 from pathlib import Path
+import shutil
 import subprocess as sp
 import sys
 import tempfile
@@ -21,6 +22,9 @@ def main():
                    PYTHONDONTWRITEBYTECODE='1')
         env.pop('TMUX', None)
         env.pop('TMUX_PANE', None)
+        # Never touch the owner's real scope unit.
+        scope = 'shell-kit-test-%d' % os.getpid()
+        env['SHELL_KIT_TMUX_SCOPE'] = scope
 
         def run(*args):
             return sp.run([BASH, SCRIPT, *args], env=env, text=True,
@@ -99,8 +103,63 @@ def main():
                 assert str(sibling) in shown.stdout, shown.stdout
             finally:
                 sibling.rmdir()
+            # Creating the server through the scoped runner must leave it in
+            # its own cgroup, so the terminal dying cannot take it along.
+            if shutil.which('systemd-run'):
+                tm('kill-server', check=False)
+                time.sleep(0.3)
+                made = run('run', 'new-session', '-d', '-s', 'scoped')
+                assert made.returncode == 0, made.stderr
+                time.sleep(0.5)
+                pid = tm('list-sessions', '-F', '#{pid}').stdout.strip().splitlines()[0]
+                cgroup = Path('/proc/%s/cgroup' % pid).read_text()
+                assert scope in cgroup, cgroup
+                # Opting out must fall back to a plain, unscoped tmux.
+                tm('kill-server', check=False)
+                time.sleep(0.3)
+                env['SHELL_KIT_TMUX_SCOPE'] = 'off'
+                plain = run('run', 'new-session', '-d', '-s', 'unscoped')
+                assert plain.returncode == 0, plain.stderr
+                time.sleep(0.4)
+                pid = tm('list-sessions', '-F', '#{pid}').stdout.strip().splitlines()[0]
+                assert scope not in Path('/proc/%s/cgroup' % pid).read_text()
+                env['SHELL_KIT_TMUX_SCOPE'] = scope
+
+            # Suspending must reach the work, not the idle pane shell: job
+            # control gives each job its own process group.
+            tm('kill-server', check=False)
+            time.sleep(0.3)
+            tm('new-session', '-d', '-s', 'busy')
+            time.sleep(0.4)
+            tm('send-keys', '-t', 'busy', 'sleep 600', 'Enter')
+            time.sleep(1.0)
+            pane = tm('list-panes', '-s', '-t', 'busy', '-F', '#{pane_pid}').stdout.strip()
+            kid = sp.run(['ps', '-eo', 'pid,ppid'], text=True, capture_output=True).stdout
+            child = [l.split()[0] for l in kid.splitlines()[1:]
+                     if len(l.split()) > 1 and l.split()[1] == pane]
+            assert child, 'no child process in the pane'
+            state = lambda: Path('/proc/%s/stat' % child[0]).read_text().split()[2]
+            assert state() == 'S', state()
+            frozen = run('freeze', 'busy')
+            assert frozen.returncode == 0, frozen.stderr
+            time.sleep(0.4)
+            assert state() == 'T', 'freeze did not stop the work: ' + state()
+            assert run('thaw', 'busy').returncode == 0
+            time.sleep(0.4)
+            assert state() == 'S', 'thaw did not resume the work: ' + state()
+
+            # Killing removes exactly the named session.
+            tm('new-session', '-d', '-s', 'keepme')
+            time.sleep(0.3)
+            killed = run('kill', 'busy')
+            assert killed.returncode == 0, killed.stderr
+            remaining = tm('list-sessions', '-F', '#{session_name}').stdout.split()
+            assert 'busy' not in remaining, remaining
+            assert 'keepme' in remaining, remaining
         finally:
             tm('kill-server', check=False)
+            sp.run(['systemctl', '--user', 'stop', scope + '.scope'],
+                   capture_output=True)
     print('tsessions checks passed')
     return 0
 

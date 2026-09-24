@@ -205,7 +205,21 @@ tn project              # new session; switches safely inside tmux
 ta project              # attach or switch; name or unambiguous pattern
 ta                      # reattach the most recent session
 td                      # detach without stopping work
+tk project              # kill a session; tk project:2 kills one window
+tfreeze project         # suspend the work running in its panes
+tthaw project           # resume it
 ```
+
+`tn` starts the tmux server inside its own systemd scope
+(`shell-kit-tmux.scope`), so closing the terminal — or systemd-oomd reclaiming
+it under memory pressure — no longer takes every session with it. Only the
+server is wrapped, since it forks every window and pane, and they inherit the
+cgroup. `SHELL_KIT_TMUX_SCOPE=off` opts out; without systemd this is a plain
+`tmux` call.
+
+`tfreeze` releases CPU but not memory: suspended processes keep their pages, so
+kill a session to reclaim RAM. It signals the pane's descendants rather than
+its process group, because job control gives each job a group of its own.
 
 `tl` and `ta` share one implementation, `tsessions`, so the same search is
 available when reconnecting from another machine:

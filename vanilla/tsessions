@@ -1,7 +1,60 @@
 #!/usr/bin/env bash
-# Find and attach tmux sessions by name, running command, or working directory.
+# Find, attach, kill and suspend tmux sessions by name, running command, or
+# working directory.
 # Usable from a shell alias or directly: ssh HOST -t tsessions attach studio
 set -u
+
+# A tmux server started from a terminal shares that terminal's cgroup, so
+# closing the window - or systemd-oomd reclaiming it under memory pressure -
+# takes every session with it. Starting it inside its own systemd scope makes
+# the sessions outlive the terminal. Set SHELL_KIT_TMUX_SCOPE=off to opt out;
+# without systemd, as on macOS, this is a plain tmux call.
+scope_unit=${SHELL_KIT_TMUX_SCOPE:-shell-kit-tmux}
+
+run_tmux() {
+    if [ "$scope_unit" = off ] || [ -n "${TMUX-}" ] \
+       || tmux list-sessions >/dev/null 2>&1 \
+       || ! command -v systemd-run >/dev/null 2>&1; then
+        exec tmux "$@"
+    fi
+    # Only the server needs the scope: it forks every window and pane, so they
+    # inherit the cgroup. A name collision or missing user manager falls back.
+    systemd-run --user --scope --quiet --unit="$scope_unit.scope" tmux "$@" && exit 0
+    exec tmux "$@"
+}
+
+# Every descendant of a pane, excluding the pane's own shell. Job control puts
+# each job in its own process group, so signalling the pane's group reaches the
+# idle shell and misses the work; the tree is what matters. One ps snapshot
+# keeps this portable, as macOS ps has no --ppid.
+descendants_of() {
+    ps -eo pid,ppid 2>/dev/null | SK_ROOT=$1 awk '
+        NR > 1 { child[$2] = child[$2] " " $1 }
+        END {
+            n = 1; queue[1] = ENVIRON["SK_ROOT"]
+            for (i = 1; i <= n; i++) {
+                split(child[queue[i]], kids, " ")
+                for (k = 1; k <= length(kids); k++)
+                    if (kids[k] != "") queue[++n] = kids[k]
+            }
+            for (i = 2; i <= n; i++) print queue[i]
+        }'
+}
+
+# Suspend a session's work without discarding it. This releases CPU only: the
+# processes keep their memory, so kill the session to reclaim that.
+signal_session() {
+    local pane pid count=0
+    for pane in $(tmux list-panes -s -t "$1" -F '#{pane_pid}' 2>/dev/null); do
+        for pid in $(descendants_of "$pane"); do
+            kill -"$2" "$pid" 2>/dev/null && count=$((count + 1))
+        done
+    done
+    printf '%s %d process(es) in session %s\n' "$3" "$count" "$1"
+    [ "$count" -gt 0 ] || printf 'Its panes were idle; an idle shell costs nothing.\n' >&2
+}
+
+USAGE="usage: tsessions [list|attach|which|new|kill|freeze|thaw] [PATTERN]"
 
 fields=$'#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_activity}\t#{pane_current_command}\t#{pane_current_path}'
 
@@ -59,13 +112,26 @@ resolve() {
 
 action=${1-list}
 case $action in
-    list|attach|which) shift ;;
-    -h|--help) printf 'usage: tsessions [list|attach|which] [PATTERN]\n'; exit 0 ;;
+    list|attach|which|new|kill|freeze|thaw|run) shift ;;
+    -h|--help) printf '%s\n' "$USAGE"; exit 0 ;;
     *) action=list ;;
 esac
 pattern=${1-}
 case $pattern in
-    -h|--help) printf 'usage: tsessions [list|attach|which] [PATTERN]\n'; exit 0 ;;
+    -h|--help) printf '%s\n' "$USAGE"; exit 0 ;;
+esac
+
+# Creating a session is what starts the server, so these run before the check.
+case $action in
+    run) run_tmux "$@" ;;
+    new)
+        [ -n "$pattern" ] || { printf 'usage: tsessions new NAME\n' >&2; exit 1; }
+        if [ -n "${TMUX-}" ]; then
+            tmux new-session -d -s "$pattern" || exit 1
+            exec tmux switch-client -t "$pattern"
+        fi
+        run_tmux new-session -s "$pattern"
+        ;;
 esac
 
 tmux list-sessions >/dev/null 2>&1 || {
@@ -93,5 +159,19 @@ case $action in
         fi
         name=$(resolve "$pattern") || exit 1
         if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "$name"; else exec tmux attach-session -t "$name"; fi
+        ;;
+    kill)
+        # A colon means the caller is naming a window, which has no pattern
+        # search: tmux target syntax is already exact.
+        case $pattern in
+            *:*) exec tmux kill-window -t "$pattern" ;;
+        esac
+        name=$(resolve "$pattern") || exit 1
+        tmux kill-session -t "$name" && printf 'Killed session %s\n' "$name"
+        ;;
+    freeze|thaw)
+        name=$(resolve "$pattern") || exit 1
+        if [ "$action" = freeze ]; then signal_session "$name" STOP Suspended
+        else signal_session "$name" CONT Resumed; fi
         ;;
 esac
