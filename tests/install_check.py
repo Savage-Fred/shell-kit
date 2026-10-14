@@ -64,6 +64,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     (home / '.bashrc').write_bytes(installed)
     runtime = home / '.local/share/shell-kit-runtime/bin'
     assert (runtime / 'cheat').exists() and not (runtime / 'tmenu').exists()
+    assert not (runtime / 'tsessions').exists(), 'unselected component installed tsessions'
     # With no pager, a popup would close as soon as cat exits. Keep the sheet
     # in the calling shell's scrollback, even when invoked from inside tmux.
     fake_tmux = minimal / 'tmux'
@@ -100,12 +101,21 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     # A broken legacy cached tool link must not crash a new installation.
     (runtime / 'tmux').symlink_to(home / 'removed version/tmux')
     run(*args, '--yes')
-    run('--components', 'references', '--yes')
+    if shutil.which('tmux'):
+        (minimal / 'tmux').symlink_to(shutil.which('tmux'))
+        run('--components', 'tmux', '--mode', 'vanilla', '--yes')
+        assert (runtime / 'tsessions').exists(), 'tsessions link missing when tmux selected'
+        run('--components', 'references', '--yes')
+        assert not (runtime / 'tsessions').exists(), 'deselection left tsessions'
+        (minimal / 'tmux').unlink()
+    else:
+        run('--components', 'references', '--yes')
     assert not (runtime / 'shell-kit-search').exists(), 'deselection left helper'
     assert not (runtime / 'configs').exists(), 'deselection left configs'
     run('--uninstall', '--yes')
     assert (home / '.bashrc').read_bytes() == original
     assert not (runtime / 'cheat').exists()
+    assert not (runtime / 'tsessions').exists(), 'uninstall left tsessions'
     foreign.mkdir()
     (foreign / 'mine').write_text('unrelated skill')
     run('--components', 'helpers', '--yes')

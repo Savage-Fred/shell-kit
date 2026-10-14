@@ -57,6 +57,24 @@ def main():
             assert exact.returncode == 0, exact.stderr
             assert exact.stdout.strip() == 'alpha', exact.stdout
 
+            # Delimiter handling under LC_ALL=C must not sanitize tabs to underscores.
+            c_env = dict(env, LC_ALL='C')
+            c_run = lambda *args: sp.run([BASH, SCRIPT, *args], env=c_env, text=True,
+                                         capture_output=True)
+            c_exact = c_run('which', 'alpha')
+            assert c_exact.returncode == 0, c_exact.stderr
+            assert c_exact.stdout.strip() == 'alpha', c_exact.stdout
+            c_listed = c_run('list')
+            assert c_listed.returncode == 0, c_listed.stderr
+            assert 'alpha' in c_listed.stdout and 'alpha-two' in c_listed.stdout
+
+            # Guard HOME under set -u in render() when HOME is unset.
+            no_home_env = dict(env)
+            no_home_env.pop('HOME', None)
+            no_home = sp.run([BASH, SCRIPT, 'list'], env=no_home_env, text=True,
+                             capture_output=True)
+            assert no_home.returncode == 0, no_home.stderr
+
             # A prefix matching two names must refuse instead of guessing.
             ambiguous = run('which', 'al')
             assert ambiguous.returncode == 1, ambiguous.stdout
@@ -112,8 +130,14 @@ def main():
                 assert made.returncode == 0, made.stderr
                 time.sleep(0.5)
                 pid = tm('list-sessions', '-F', '#{pid}').stdout.strip().splitlines()[0]
-                cgroup = Path('/proc/%s/cgroup' % pid).read_text()
-                assert scope in cgroup, cgroup
+                if sys.platform == 'linux':
+                    cgroup = Path('/proc/%s/cgroup' % pid).read_text()
+                    assert scope in cgroup, cgroup
+                # Restarting with the same scope unit must cleanly clear any lingering unit.
+                tm('kill-server', check=False)
+                time.sleep(0.3)
+                restarted = run('run', 'new-session', '-d', '-s', 'scoped-restarted')
+                assert restarted.returncode == 0, restarted.stderr
                 # Opting out must fall back to a plain, unscoped tmux.
                 tm('kill-server', check=False)
                 time.sleep(0.3)
@@ -122,7 +146,8 @@ def main():
                 assert plain.returncode == 0, plain.stderr
                 time.sleep(0.4)
                 pid = tm('list-sessions', '-F', '#{pid}').stdout.strip().splitlines()[0]
-                assert scope not in Path('/proc/%s/cgroup' % pid).read_text()
+                if sys.platform == 'linux':
+                    assert scope not in Path('/proc/%s/cgroup' % pid).read_text()
                 env['SHELL_KIT_TMUX_SCOPE'] = scope
 
             # Suspending must reach the work, not the idle pane shell: job
@@ -138,15 +163,36 @@ def main():
             child = [l.split()[0] for l in kid.splitlines()[1:]
                      if len(l.split()) > 1 and l.split()[1] == pane]
             assert child, 'no child process in the pane'
-            state = lambda: Path('/proc/%s/stat' % child[0]).read_text().split()[2]
+            state = lambda: sp.run(['ps', '-o', 'state=', '-p', child[0]],
+                                   text=True, capture_output=True).stdout.strip()[:1]
             assert state() == 'S', state()
             frozen = run('freeze', 'busy')
             assert frozen.returncode == 0, frozen.stderr
-            time.sleep(0.4)
+            for _ in range(30):
+                if state() == 'T':
+                    break
+                time.sleep(0.1)
             assert state() == 'T', 'freeze did not stop the work: ' + state()
             assert run('thaw', 'busy').returncode == 0
-            time.sleep(0.4)
+            for _ in range(30):
+                if state() == 'S':
+                    break
+                time.sleep(0.1)
             assert state() == 'S', 'thaw did not resume the work: ' + state()
+
+            # Non-empty pattern required for kill, freeze, and thaw
+            for act in ('kill', 'freeze', 'thaw'):
+                no_arg = run(act)
+                assert no_arg.returncode == 1, f'{act} without arguments must fail'
+                assert f'usage: tsessions {act} PATTERN' in no_arg.stderr, no_arg.stderr
+
+            # Colon target kills window without killing session
+            tm('new-window', '-t', 'busy', '-n', 'subwin')
+            time.sleep(0.3)
+            assert 'subwin' in tm('list-windows', '-t', 'busy', '-F', '#{window_name}').stdout
+            kill_win = run('kill', 'busy:subwin')
+            assert kill_win.returncode == 0, kill_win.stderr
+            assert 'subwin' not in tm('list-windows', '-t', 'busy', '-F', '#{window_name}').stdout
 
             # Killing removes exactly the named session.
             tm('new-session', '-d', '-s', 'keepme')

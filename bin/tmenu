@@ -5,7 +5,7 @@ import shutil
 import subprocess as sp
 import sys
 
-result = sp.run(['tmux', 'list-sessions', '-F', '#{session_id}\t#{session_name}\t#{session_windows} windows\t#{?session_attached,ATTACHED,detached}'], text=True, capture_output=True)
+result = sp.run(['tmux', '-u', 'list-sessions', '-F', '#{session_id}\t#{session_name}\t#{session_windows} windows\t#{?session_attached,ATTACHED,detached}'], text=True, capture_output=True)
 if result.returncode:
     print('No sessions yet. Create one with: tn NAME')
     sys.exit(0)
