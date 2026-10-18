@@ -80,10 +80,18 @@ def main():
             assert ambiguous.returncode == 1, ambiguous.stdout
             assert 'Several sessions match' in ambiguous.stderr, ambiguous.stderr
 
-            # Working directory is searchable, not just the session name.
+            # Working directory is searchable across windows and ignores mobile
+            # help panes (@shell_kit) when choosing the displayed work context.
             by_path = run('which', 'widgets')
             assert by_path.returncode == 0, by_path.stderr
             assert by_path.stdout.strip() == 'beta', by_path.stdout
+            help_pane = tm('new-window', '-P', '-F', '#{pane_id}', '-t', 'beta:',
+                           '-n', 'help:tmux', '-c', folder).stdout.strip()
+            tm('set-option', '-p', '-t', help_pane, '@shell_kit', 'tmux')
+            time.sleep(0.2)
+            assert run('which', 'widgets').stdout.strip() == 'beta'
+            assert 'widgets' in run('list', 'beta').stdout
+            tm('kill-pane', '-t', help_pane)
 
             # A pattern is data: awk -v would eat its backslash escapes.
             escaped = run('list', 'a\\lpha')
@@ -133,6 +141,18 @@ def main():
                 if sys.platform == 'linux':
                     cgroup = Path('/proc/%s/cgroup' % pid).read_text()
                     assert scope in cgroup, cgroup
+                # Starting another server when the base scope unit is already
+                # active must not stop the live server in that scope.
+                other_tmp = home / 'other-sock'
+                other_tmp.mkdir()
+                other_env = dict(env, TMUX_TMPDIR=str(other_tmp))
+                try:
+                    second = sp.run([BASH, SCRIPT, 'run', 'new-session', '-d', '-s', 'second-srv'],
+                                    env=other_env, text=True, capture_output=True)
+                    assert second.returncode == 0, second.stderr
+                    assert 'scoped' in tm('list-sessions', '-F', '#{session_name}').stdout
+                finally:
+                    sp.run(['tmux', 'kill-server'], env=other_env, capture_output=True)
                 # Restarting with the same scope unit must cleanly clear any lingering unit.
                 tm('kill-server', check=False)
                 time.sleep(0.3)

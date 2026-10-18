@@ -23,7 +23,7 @@ elif [ -n "${TMUX-}" ] && [ "$action" != view ] && command -v less >/dev/null 2>
     exec tmux display-popup -E -w 80% -h 80% "$command"
 elif command -v less >/dev/null 2>&1 && [ -t 1 ]; then
     unset LESS LESSOPEN
-    export LESSHISTFILE=- LESSKEY="$ROOT/integrations/less.keys"
+    export LESSHISTFILE=- LESSCHARSET=utf-8 LESSKEY="$ROOT/integrations/less.keys"
     exec less -R -i -+F -+X +g -P 'Sheila | q/F1-F6 close | arrows scroll | / search' "$file"
 else
     cat "$file"

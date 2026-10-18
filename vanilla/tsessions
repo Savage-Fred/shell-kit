@@ -11,17 +11,28 @@ set -u
 # without systemd, as on macOS, this is a plain tmux call.
 scope_unit=${SHELL_KIT_TMUX_SCOPE:-shell-kit-tmux}
 
+register_client() {
+    [ -z "${TMUX-}" ] && [ -t 0 ] || return 0
+    local cheat="$HOME/.local/share/shell-kit-runtime/bin/cheat"
+    [ -x "$cheat" ] && "$cheat" register >/dev/null 2>&1 || true
+}
+
 run_tmux() {
+    register_client
     if [ "$scope_unit" = off ] || [ -n "${TMUX-}" ] \
        || tmux list-sessions >/dev/null 2>&1 \
        || ! command -v systemd-run >/dev/null 2>&1; then
         exec tmux "$@"
     fi
     # Only the server needs the scope: it forks every window and pane, so they
-    # inherit the cgroup. A name collision or missing user manager falls back.
-    systemctl --user stop "$scope_unit.scope" >/dev/null 2>&1 || true
+    # inherit the cgroup. Never stop an active scope (which could hold another
+    # socket's server); use a per-process suffix if the base unit is busy.
     systemctl --user reset-failed "$scope_unit.scope" >/dev/null 2>&1 || true
-    systemd-run --user --scope --quiet --unit="$scope_unit.scope" tmux "$@" && exit 0
+    local unit="$scope_unit.scope"
+    if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+        unit="$scope_unit-$$.scope"
+    fi
+    systemd-run --user --scope --collect --quiet --unit="$unit" tmux "$@" && exit 0
     exec tmux "$@"
 }
 
@@ -58,19 +69,40 @@ signal_session() {
 
 USAGE="usage: tsessions [list|attach|which|new|kill|freeze|thaw] [PATTERN]"
 
-fields=$'#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_activity}\t#{pane_current_command}\t#{pane_current_path}'
+fields=$'#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_activity}\t#{pane_current_command}\t#{pane_current_path}\t#{window_active}\t#{pane_active}\t#{@shell_kit}'
 
 select_rows() {
-    # Tier 1 exact name, tier 2 name prefix, tier 3 name/command/path substring.
-    tmux -u list-sessions -F "$fields" 2>/dev/null | SK_PATTERN=$1 awk -F'\t' '
+    # Tier 1 exact name, tier 2 name prefix, tier 3 name/command/path substring
+    # across any work pane in the session (skipping helper panes for display).
+    tmux -u list-panes -a -F "$fields" 2>/dev/null | SK_PATTERN=$1 awk -F'\t' '
         BEGIN { pat = tolower(ENVIRON["SK_PATTERN"]) }
         {
-            if (pat == "") tier = 3
-            else if (tolower($1) == pat) tier = 1
-            else if (index(tolower($1), pat) == 1) tier = 2
-            else if (index(tolower($1), pat) || index(tolower($5), pat) || index(tolower($6), pat)) tier = 3
-            else next
-            print tier "\t" $0
+            s = $1
+            if (!seen[s]++) order[++n] = s
+            att[s] = $2; win[s] = $3; act[s] = $4
+            is_help = ($9 != "")
+            is_act = ($7 == "1" && $8 == "1")
+            is_busy = (!is_help && $5 !~ /^(bash|zsh|sh|fish|-bash|-zsh)$/)
+            p = is_help ? 1 : (is_act && is_busy ? 5 : (is_busy ? 4 : (is_act ? 3 : 2)))
+            if (p > prio[s]) { prio[s] = p; cmd[s] = $5; path[s] = $6 }
+            if (pat != "" && !is_help && (index(tolower($5), pat) || index(tolower($6), pat))) {
+                hit[s] = 1
+                if (p >= hit_prio[s]) { hit_prio[s] = p; hit_cmd[s] = $5; hit_path[s] = $6 }
+            }
+        }
+        END {
+            for (i = 1; i <= n; i++) {
+                s = order[i]; ls = tolower(s)
+                c = cmd[s]; d = path[s]
+                if (pat == "") tier = 3
+                else if (ls == pat) tier = 1
+                else if (index(ls, pat) == 1) tier = 2
+                else if (index(ls, pat)) tier = 3
+                else if (hit[s]) { tier = 3; c = hit_cmd[s]; d = hit_path[s] }
+                else if (index(tolower(c), pat) || index(tolower(d), pat)) tier = 3
+                else continue
+                printf "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", tier, s, att[s], win[s], act[s], c, d
+            }
         }'
 }
 
@@ -89,8 +121,23 @@ render() {
             if (index(p, home "/") == 1) return "~" substr(p, length(home) + 1)
             return p
         }
-        BEGIN { printf "  %-14s %3s %6s  %-12s %s\n", "SESSION", "WIN", "IDLE", "RUNNING", "PATH" }
-        { printf "%s %-14s %3s %6s  %-12s %s\n", ($3 + 0 > 0 ? "*" : " "), $2, $4, idle($5), $6, shorten($7) }'
+        function pad(s, w) {
+            while (length(s) < w) s = s " "
+            return s
+        }
+        BEGIN { w2 = 7; w6 = 7 }
+        {
+            rows[++n] = $0
+            if (length($2) > w2) w2 = length($2) > 14 ? 14 : length($2)
+            if (length($6) > w6) w6 = length($6) > 12 ? 12 : length($6)
+        }
+        END {
+            printf "  %s %3s %4s  %s %s\n", pad("SESSION", w2), "WIN", "IDLE", pad("RUNNING", w6), "PATH"
+            for (i = 1; i <= n; i++) {
+                split(rows[i], f, "\t")
+                printf "%s %s %3s %4s  %s %s\n", (f[3] + 0 > 0 ? "*" : " "), pad(f[2], w2), f[4], idle(f[5]), pad(f[6], w6), shorten(f[7])
+            }
+        }'
 }
 
 # Print the single session a pattern identifies, or explain why it does not.
@@ -153,14 +200,14 @@ case $action in
     attach)
         if [ -z "$pattern" ]; then
             # tmux already tracks the most recent session; let it choose.
-            [ -n "${TMUX-}" ] || exec tmux attach-session
+            if [ -z "${TMUX-}" ]; then register_client; exec tmux attach-session; fi
             tmux switch-client -l 2>/dev/null && exit 0
             printf 'No previous session to return to; name one:\n' >&2
             select_rows '' | render >&2
             exit 1
         fi
         name=$(resolve "$pattern") || exit 1
-        if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "$name"; else exec tmux attach-session -t "$name"; fi
+        if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "$name"; else register_client; exec tmux attach-session -t "$name"; fi
         ;;
     kill)
         [ -n "$pattern" ] || { printf 'usage: tsessions kill PATTERN\n' >&2; exit 1; }
