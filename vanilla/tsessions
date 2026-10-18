@@ -24,6 +24,9 @@ run_tmux() {
        || ! command -v systemd-run >/dev/null 2>&1; then
         exec tmux "$@"
     fi
+    if ! systemctl --user show-environment >/dev/null 2>&1; then
+        exec tmux "$@"
+    fi
     # Only the server needs the scope: it forks every window and pane, so they
     # inherit the cgroup. Never stop an active scope (which could hold another
     # socket's server); use a per-process suffix if the base unit is busy.
@@ -32,8 +35,7 @@ run_tmux() {
     if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
         unit="$scope_unit-$$.scope"
     fi
-    systemd-run --user --scope --collect --quiet --unit="$unit" tmux "$@" && exit 0
-    exec tmux "$@"
+    exec systemd-run --user --scope --collect --quiet --unit="$unit" tmux "$@"
 }
 
 # Every descendant of a pane, excluding the pane's own shell. Job control puts
@@ -58,7 +60,7 @@ descendants_of() {
 # processes keep their memory, so kill the session to reclaim that.
 signal_session() {
     local pane pid count=0
-    for pane in $(tmux list-panes -s -t "$1" -F '#{pane_pid}' 2>/dev/null); do
+    for pane in $(tmux list-panes -s -t "=$1:" -F '#{pane_pid}' 2>/dev/null); do
         for pid in $(descendants_of "$pane"); do
             kill -"$2" "$pid" 2>/dev/null && count=$((count + 1))
         done
@@ -177,7 +179,7 @@ case $action in
         [ -n "$pattern" ] || { printf 'usage: tsessions new NAME\n' >&2; exit 1; }
         if [ -n "${TMUX-}" ]; then
             tmux new-session -d -s "$pattern" || exit 1
-            exec tmux switch-client -t "$pattern"
+            exec tmux switch-client -t "=$pattern"
         fi
         run_tmux new-session -s "$pattern"
         ;;
@@ -207,7 +209,7 @@ case $action in
             exit 1
         fi
         name=$(resolve "$pattern") || exit 1
-        if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "$name"; else register_client; exec tmux attach-session -t "$name"; fi
+        if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "=$name"; else register_client; exec tmux attach-session -t "=$name"; fi
         ;;
     kill)
         [ -n "$pattern" ] || { printf 'usage: tsessions kill PATTERN\n' >&2; exit 1; }
@@ -217,7 +219,7 @@ case $action in
             *:*) exec tmux kill-window -t "$pattern" ;;
         esac
         name=$(resolve "$pattern") || exit 1
-        tmux kill-session -t "$name" && printf 'Killed session %s\n' "$name"
+        tmux kill-session -t "=$name" && printf 'Killed session %s\n' "$name"
         ;;
     freeze|thaw)
         [ -n "$pattern" ] || { printf 'usage: tsessions %s PATTERN\n' "$action" >&2; exit 1; }

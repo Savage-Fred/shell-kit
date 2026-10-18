@@ -200,6 +200,35 @@ def main():
                 time.sleep(0.1)
             assert state() == 'S', 'thaw did not resume the work: ' + state()
 
+            # Auto-named numeric sessions (0, 1) must not be confused with
+            # window index 0 of the most recent session when freezing.
+            tm('new-session', '-d', '-s', '0')
+            tm('new-session', '-d', '-s', '1')
+            time.sleep(0.3)
+            tm('send-keys', '-t', '=0:', 'sleep 600', 'Enter')
+            tm('send-keys', '-t', '=1:', 'sleep 600', 'Enter')
+            time.sleep(0.8)
+            pane0 = tm('list-panes', '-s', '-t', '=0:', '-F', '#{pane_pid}').stdout.strip()
+            pane1 = tm('list-panes', '-s', '-t', '=1:', '-F', '#{pane_pid}').stdout.strip()
+            kid_num = sp.run(['ps', '-eo', 'pid,ppid'], text=True, capture_output=True).stdout
+            child0 = [l.split()[0] for l in kid_num.splitlines()[1:]
+                      if len(l.split()) > 1 and l.split()[1] == pane0]
+            child1 = [l.split()[0] for l in kid_num.splitlines()[1:]
+                      if len(l.split()) > 1 and l.split()[1] == pane1]
+            assert child0 and child1, (child0, child1)
+            state_of = lambda p: sp.run(['ps', '-o', 'state=', '-p', p],
+                                        text=True, capture_output=True).stdout.strip()[:1]
+            assert run('freeze', '0').returncode == 0
+            for _ in range(30):
+                if state_of(child0[0]) == 'T':
+                    break
+                time.sleep(0.1)
+            assert state_of(child0[0]) == 'T', 'numeric session 0 was not frozen'
+            assert state_of(child1[0]) == 'S', 'numeric session 1 was frozen instead of 0'
+            assert run('thaw', '0').returncode == 0
+            tm('kill-session', '-t', '=0')
+            tm('kill-session', '-t', '=1')
+
             # Non-empty pattern required for kill, freeze, and thaw
             for act in ('kill', 'freeze', 'thaw'):
                 no_arg = run(act)
