@@ -41,14 +41,38 @@ fi
 case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' tmux '*)
 if ! type tn >/dev/null 2>&1; then
     function tn {
-        if [ -n "${TMUX-}" ]; then
+        # tsessions starts the server in its own systemd scope, so the sessions
+        # survive the terminal being closed or reclaimed under memory pressure.
+        if command -v tsessions >/dev/null 2>&1; then command tsessions new "$@"
+        elif [ -n "${TMUX-}" ]; then
             command tmux new-session -d -s "${1:?usage: tn NAME}" && command tmux switch-client -t "$1"
         else command tmux new-session -s "${1:?usage: tn NAME}"; fi
     }
 fi
+if ! type tk >/dev/null 2>&1; then
+    function tk { command tsessions kill "${1:?usage: tk PATTERN | SESSION:WINDOW}"; }
+fi
+if ! type tfreeze >/dev/null 2>&1; then
+    function tfreeze { command tsessions freeze "${1:?usage: tfreeze PATTERN}"; }
+fi
+if ! type tthaw >/dev/null 2>&1; then
+    function tthaw { command tsessions thaw "${1:?usage: tthaw PATTERN}"; }
+fi
+if ! type tl >/dev/null 2>&1; then
+    function tl {
+        if command -v tsessions >/dev/null 2>&1; then command tsessions list "$@"
+        elif [ "$#" -gt 0 ]; then
+            printf 'tl: searching needs tsessions; re-run shell-kit install.sh\n' >&2
+            return 1
+        else command tmux list-sessions; fi
+    }
+fi
 if ! type ta >/dev/null 2>&1; then
     function ta {
-        if [ -n "${TMUX-}" ]; then command tmux switch-client -t "${1:?usage: ta NAME}"
+        # No argument reattaches the most recent session; a pattern matches the
+        # session name, the command running in it, or its working directory.
+        if command -v tsessions >/dev/null 2>&1; then command tsessions attach "$@"
+        elif [ -n "${TMUX-}" ]; then command tmux switch-client -t "${1:?usage: ta NAME}"
         else command tmux attach-session -t "${1:?usage: ta NAME}"; fi
     }
 fi

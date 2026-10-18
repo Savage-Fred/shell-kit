@@ -5,6 +5,9 @@ if ! tmux list-sessions >/dev/null 2>&1; then
     printf 'No sessions yet. Create one with: tn NAME\n'
 elif [ -n "${TMUX-}" ]; then
     exec tmux choose-tree -s
+elif command -v tsessions >/dev/null 2>&1; then
+    # Route through tsessions so the server keeps its own systemd scope.
+    exec tsessions run attach-session \; choose-tree -s
 else
     exec tmux attach-session \; choose-tree -s
 fi
