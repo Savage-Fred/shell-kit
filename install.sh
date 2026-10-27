@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Bash 3.2-compatible component manager. No package manager is invoked.
 set -euo pipefail
-ROOT=$(cd "$(dirname "$0")" && pwd -P)
+SELF=$0
+while [ -L "$SELF" ]; do
+    target=$(readlink "$SELF")
+    case $target in /*) SELF=$target ;; *) SELF=$(dirname "$SELF")/$target ;; esac
+done
+ROOT=$(cd -P -- "$(dirname "$SELF")" && pwd)
 STATE="$HOME/.local/state/shell-kit"
 LINK="$HOME/.local/share/shell-kit"
 RUNTIME="$HOME/.local/share/shell-kit-runtime/bin"
@@ -49,7 +54,7 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] || die '--components needs a comma-separated list'
             selected=(0 0 0 0 0); interactive=0
             IFS=, read -r -a requested <<< "$2"
-            for name in "${requested[@]}"; do
+            for name in ${requested[@]+"${requested[@]}"}; do
                 found=0
                 for i in 0 1 2 3 4; do
                     if [ "$name" = "${names[$i]}" ]; then selected[$i]=1; found=1; fi
@@ -161,13 +166,19 @@ dependencies || die 'Nothing changed. Select fewer components or choose --mode v
 
 # Resolve existing dotfile symlinks so replacement preserves the user's links.
 resolve() {
-    local path=$1 dest count=0
+    local path=$1 dest count=0 dir base
     while [ -L "$path" ]; do
         count=$((count + 1)); [ "$count" -le 40 ] || die "Symlink loop: $1"
         dest=$(readlink "$path")
         case $dest in /*) path=$dest;; *) path=$(dirname "$path")/$dest;; esac
     done
-    if [ -d "$(dirname "$path")" ]; then path=$(cd "$(dirname "$path")" && pwd -P)/${path##*/}; fi
+    dir=$(dirname "$path")
+    base=${path##*/}
+    if [ -d "$dir" ]; then
+        dir=$(cd -P -- "$dir" 2>/dev/null && pwd -P)
+        if [ "$dir" = "/" ]; then path="/$base"
+        else path="$dir/$base"; fi
+    fi
     printf '%s\n' "$path"
 }
 writable_parent() {
@@ -348,17 +359,17 @@ prune_backups() {
     done
     while [ "${#kept[@]}" -gt "$backup_keep" ]; do
         oldest=''
-        for path in "${kept[@]}"; do
+        for path in ${kept[@]+"${kept[@]}"}; do
             [ "$path" = "$backup" ] && continue
             if [ -z "$oldest" ] || [ "$path" -ot "$oldest" ]; then oldest=$path; fi
         done
         [ -n "$oldest" ] || break
         rm -rf "$oldest"
         next=()
-        for path in "${kept[@]}"; do
+        for path in ${kept[@]+"${kept[@]}"}; do
             [ "$path" = "$oldest" ] || next+=("$path")
         done
-        kept=("${next[@]}")
+        kept=(${next[@]+"${next[@]}"})
     done
 }
 
@@ -372,11 +383,11 @@ done
 
 needs_backup=()
 seen_targets=()
-for i in "${needs_update[@]}"; do
+for i in ${needs_update[@]+"${needs_update[@]}"}; do
     target=${targets[$i]}
     if [ -f "$target" ]; then
         already_seen=0
-        for st in "${seen_targets[@]}"; do
+        for st in ${seen_targets[@]+"${seen_targets[@]}"}; do
             if [ "$st" = "$target" ]; then already_seen=1; break; fi
         done
         if [ "$already_seen" = 0 ]; then
@@ -401,7 +412,7 @@ if [ "${#needs_backup[@]}" -gt 0 ]; then
     : > "$backup/checksums.sha256"
     : > "$backup/files.tsv"
 
-    for i in "${needs_backup[@]}"; do
+    for i in ${needs_backup[@]+"${needs_backup[@]}"}; do
         target=${targets[$i]}
         base="${target##*/}"
         cp -p "$target" "$backup/$i"
@@ -437,11 +448,11 @@ if [ "${#needs_backup[@]}" -gt 0 ]; then
 fi
 
 written_targets=()
-for i in "${needs_update[@]}"; do
+for i in ${needs_update[@]+"${needs_update[@]}"}; do
     target=${targets[$i]}
     path=${paths[$i]}
     already_written=0
-    for wt in "${written_targets[@]}"; do
+    for wt in ${written_targets[@]+"${written_targets[@]}"}; do
         if [ "$wt" = "$target" ]; then already_written=1; break; fi
     done
     if [ "$already_written" = 1 ]; then continue; fi
@@ -456,7 +467,7 @@ for i in "${needs_update[@]}"; do
     cat "${staged[$i]}" > "$temp"
 
     if [ -L "$target" ]; then
-        real_target=$(readlink -f "$target" 2>/dev/null || resolve "$target")
+        real_target=$(resolve "$target")
         cat "$temp" > "$real_target"
         rm -f "$temp"
     elif [ -L "$path" ]; then

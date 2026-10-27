@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Bash 3.2 and standard Unix utilities; inspection never sources a config.
-set -eo pipefail
+set -euo pipefail
 SELF=${BASH_SOURCE[0]}
 while [ -L "$SELF" ]; do
     target=$(readlink "$SELF")
     case $target in /*) SELF=$target ;; *) SELF=$(dirname "$SELF")/$target ;; esac
 done
-SCANNER=$(cd -P "$(dirname "$SELF")" && pwd)/configs.awk
+SCANNER=$(cd -P -- "$(dirname "$SELF")" && pwd)/configs.awk
 usage() {
     cat <<'EOF'
 Usage: configs
@@ -35,7 +35,7 @@ case ${1-} in
             # Editor plus simple arguments; never eval an environment variable.
             if [ -x "$editor" ]; then exec "$editor" "$file"; fi
             read -r -a editor_args <<< "$editor"
-            exec "${editor_args[@]}" "$file"
+            exec ${editor_args[@]+"${editor_args[@]}"} "$file"
         elif [ "$(uname -s)" = Darwin ] && command -v open >/dev/null 2>&1; then exec open -t "$file"
         elif command -v xdg-open >/dev/null 2>&1; then exec xdg-open "$file"
         else fail 'set VISUAL or EDITOR to a text editor'; fi ;;
@@ -92,7 +92,7 @@ walk() {
     local path=$1 prefix=$2 note=$3 physical item line child kind resolved part found
     if [ "$details" = 0 ]; then
         if [ ! -f "$path" ] || [ ! -r "$path" ]; then missing=$((missing + 1)); return; fi
-        for item in "${seen[@]}"; do [ ! "$path" -ef "$item" ] || return 0; done
+        for item in ${seen[@]+"${seen[@]}"}; do [ ! "$path" -ef "$item" ] || return 0; done
         prefix=''
         case $note in source,*) note='source candidate' ;; esac
     fi
@@ -100,10 +100,10 @@ walk() {
     if [ ! -f "$path" ] || [ ! -r "$path" ]; then printf ' [missing/unreadable]\n'; return; fi
     physical=$path
     # -ef compares device/inode, including symlink aliases, on Bash 3.2.
-    for item in "${stack[@]}"; do
+    for item in ${stack[@]+"${stack[@]}"}; do
         if [ "$physical" -ef "$item" ]; then printf ' [cycle]\n'; return; fi
     done
-    for item in "${seen[@]}"; do
+    for item in ${seen[@]+"${seen[@]}"}; do
         if [ "$physical" -ef "$item" ]; then printf ' [already shown]\n'; return; fi
     done
     if [ "${#stack[@]}" -ge 32 ]; then printf ' [depth limit]\n'; incomplete=$((incomplete + 1)); return; fi
@@ -125,12 +125,12 @@ walk() {
                 resolved=$PWD/$child
                 if [[ $child != */* ]] && ! { [ "$shell" = zsh ] && [ "$kind" = source ] && [ -f "$resolved" ]; }; then
                     found=0
-                    local old_ifs=$IFS
+                    local old_ifs=${IFS:-}
                     IFS=:
                     for part in $PATH; do
                         if [ -f "${part:-$PWD}/$child" ]; then resolved=${part:-$PWD}/$child; found=1; break; fi
                     done
-                    IFS=$old_ifs
+                    if [ -n "$old_ifs" ]; then IFS=$old_ifs; else unset IFS; fi
                     if [ "$shell" = zsh ] && [ "$kind" = . ] && [ "$found" = 0 ]; then
                         missing=$((missing + 1))
                         if [ "$details" = 1 ]; then printf '%s    |-- [source at line %s: file not found on PATH]\n' "$prefix" "$line"; fi

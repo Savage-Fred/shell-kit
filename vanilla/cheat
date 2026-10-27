@@ -26,5 +26,9 @@ elif command -v less >/dev/null 2>&1 && [ -t 1 ]; then
     export LESSHISTFILE=- LESSKEY="$ROOT/integrations/less.keys"
     exec less -R -i -+F -+X +g -P 'Sheila | q/F1-F6 close | arrows scroll | / search' "$file"
 else
+    BAT_CMD=$(command -v bat || command -v batcat || true)
+    if [ -n "$BAT_CMD" ] && [ -t 1 ]; then
+        exec "$BAT_CMD" --plain "$file"
+    fi
     cat "$file"
 fi
