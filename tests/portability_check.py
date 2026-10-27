@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Automated validation and portability test suite for shell-kit.
 
-Satisfies Milestone 1 / Acceptance Criterion 7:
+Satisfies Requirement R2 (cross-OS/cross-distro compatibility):
 1. Shell syntax validation (bash -n on all core scripts).
 2. Clean-HOME isolated install & uninstall cycle with set -u (nounset) subshell verification.
 3. Missing optional tool fallbacks (graceful operation when optional tools like rg, fzf, bat, less are missing).
 4. Idempotency verification (consecutive runs produce identical file hashes).
+5. Bash 3.2 nounset empty array expansion verification (${arr[@]+"${arr[@]}"}).
+6. batcat vs bat detection and fallback logic across distributions.
+7. Portable path resolution on symlinks, spaces, and environments without GNU readlink -f.
 """
 import hashlib
 import os
@@ -315,13 +318,286 @@ def check_idempotency():
     log("Tier 4 passed: Consecutive install runs are strictly idempotent.")
 
 
+# ============================================================================
+# Tier 5: Bash 3.2 set -u (nounset) Array Expansion Verification
+# ============================================================================
+def check_bash32_nounset_array_expansion():
+    log("Tier 5: Testing empty array expansion under set -u simulating Bash 3.2 nounset...")
+
+    # 1. Behavior verification of guarded array expansion vs bare array expansion:
+    # Under Bash 3.2, bare "${empty_arr[@]}" raises an unbound variable error when set -u is enabled.
+    # The portable pattern ${arr[@]+"${arr[@]}"} safely evaluates to empty without error.
+    script_guarded = '''
+    set -u
+    empty_arr=()
+    count=0
+    for item in ${empty_arr[@]+"${empty_arr[@]}"}; do
+        count=$((count + 1))
+    done
+    [ "$count" -eq 0 ] || exit 1
+
+    populated_arr=("first item with spaces" "second item")
+    count=0
+    for item in ${populated_arr[@]+"${populated_arr[@]}"}; do
+        count=$((count + 1))
+    done
+    [ "$count" -eq 2 ] || exit 2
+    exit 0
+    '''
+    res = sp.run([BASH, '-c', script_guarded], capture_output=True, text=True)
+    assert res.returncode == 0, f"Guarded array expansion behavior check failed:\nstdout: {res.stdout}\nstderr: {res.stderr}"
+
+    # 2. Static AST / pattern check: no repo script contains bare "${arr[@]}" under set -u
+    scripts_to_audit = [
+        ROOT / 'install.sh',
+        ROOT / 'uninstall.sh',
+        ROOT / 'bin' / 'cheat',
+        ROOT / 'vanilla' / 'cheat',
+        ROOT / 'vanilla' / 'configs',
+        ROOT / 'vanilla' / 'shell-kit-search',
+        ROOT / 'vanilla' / 'tmenu',
+        ROOT / 'integrations' / 'shell.sh',
+    ]
+
+    bare_array_regex = re.compile(r'(?<!\+)"\$\{([a-zA-Z0-9_]+)\[@\]\}"')
+    for script in scripts_to_audit:
+        assert script.is_file(), f"Script {script} not found"
+        content = script.read_text()
+        matches = bare_array_regex.findall(content)
+        assert not matches, f"Bare array expansion found in {script.name}: {matches}. Must use ${{arr[@]+\"${{arr[@]}}\"}} for Bash 3.2 portability."
+
+    # 3. Dynamic test: Execute install.sh, configs, and shell-kit-search under set -u with empty inputs
+    with tempfile.TemporaryDirectory(prefix='shell-kit-nounset-') as tmp_dir_str:
+        tmp_home = Path(tmp_dir_str)
+        env = dict(os.environ, HOME=str(tmp_home))
+        for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV'):
+            env.pop(key, None)
+
+        # install.sh --dry-run under set -u
+        res_install = sp.run(
+            [BASH, '-u', str(ROOT / 'install.sh'), '--components', 'helpers,references', '--mode', 'vanilla', '--dry-run'],
+            env=env, capture_output=True, text=True
+        )
+        assert res_install.returncode == 0, f"install.sh failed under set -u:\n{res_install.stderr}"
+
+        # vanilla/configs under set -u
+        res_configs = sp.run(
+            [BASH, '-u', str(ROOT / 'vanilla' / 'configs'), 'deps', '-d', str(tmp_home)],
+            env=env, capture_output=True, text=True
+        )
+        assert res_configs.returncode == 0, f"configs failed under set -u:\n{res_configs.stderr}"
+
+        # vanilla/shell-kit-search under set -u
+        res_search = sp.run(
+            [BASH, '-u', str(ROOT / 'vanilla' / 'shell-kit-search'), 'aliases', ''],
+            input="alias ll='ls -l'\n",
+            env=env, capture_output=True, text=True
+        )
+        assert res_search.returncode == 0, f"shell-kit-search failed under set -u:\n{res_search.stderr}"
+
+    log("Tier 5 passed: Empty array expansion under set -u and Bash 3.2 nounset compatibility verified.")
+
+
+# ============================================================================
+# Tier 6: batcat vs bat Fallback and Detection Verification
+# ============================================================================
+def check_batcat_detection_logic():
+    log("Tier 6: Testing batcat vs bat detection logic across Linux/Debian/macOS environments...")
+    with tempfile.TemporaryDirectory(prefix='shell-kit-bat-test-') as tmp_str:
+        tmp_dir = Path(tmp_str)
+        mock_bin = tmp_dir / 'bin'
+        mock_bin.mkdir()
+        test_file = tmp_dir / 'sample.md'
+        test_file.write_text("# Test Document\nLine 2 content\nLine 3 content\n")
+
+        # Base minimal tools required by shell scripts
+        for tool in ('bash', 'sh', 'cat', 'less', 'awk', 'grep', 'sed'):
+            p = shutil.which(tool)
+            if p:
+                (mock_bin / tool).symlink_to(p)
+
+        search_script = ROOT / 'vanilla' / 'shell-kit-search'
+
+        # Case A: Only 'bat' is available (macOS / Arch / Fedora / standard packaging)
+        mock_bat = mock_bin / 'bat'
+        mock_bat.write_text('#!/bin/sh\nprintf "BAT_INVOKED: %s\\n" "$*"\n')
+        mock_bat.chmod(0o755)
+
+        env_bat = dict(os.environ, PATH=str(mock_bin))
+        res_bat = sp.run([BASH, str(search_script), 'preview', str(test_file)], env=env_bat, capture_output=True, text=True)
+        assert res_bat.returncode == 0, f"preview with bat failed: {res_bat.stderr}"
+        assert 'BAT_INVOKED:' in res_bat.stdout, f"Expected bat invocation, got: {res_bat.stdout}"
+        mock_bat.unlink()
+
+        # Case B: Only 'batcat' is available (Debian / Ubuntu / Raspbian packaging quirk)
+        mock_batcat = mock_bin / 'batcat'
+        mock_batcat.write_text('#!/bin/sh\nprintf "BATCAT_INVOKED: %s\\n" "$*"\n')
+        mock_batcat.chmod(0o755)
+
+        env_batcat = dict(os.environ, PATH=str(mock_bin))
+        res_batcat = sp.run([BASH, str(search_script), 'preview', str(test_file)], env=env_batcat, capture_output=True, text=True)
+        assert res_batcat.returncode == 0, f"preview with batcat failed: {res_batcat.stderr}"
+        assert 'BATCAT_INVOKED:' in res_batcat.stdout, f"Expected batcat invocation, got: {res_batcat.stdout}"
+
+        # Case C: Both 'bat' and 'batcat' are present - 'bat' takes precedence
+        mock_bat = mock_bin / 'bat'
+        mock_bat.write_text('#!/bin/sh\nprintf "BAT_PRIMARY: %s\\n" "$*"\n')
+        mock_bat.chmod(0o755)
+
+        env_both = dict(os.environ, PATH=str(mock_bin))
+        res_both = sp.run([BASH, str(search_script), 'preview', str(test_file)], env=env_both, capture_output=True, text=True)
+        assert res_both.returncode == 0, f"preview with both failed: {res_both.stderr}"
+        assert 'BAT_PRIMARY:' in res_both.stdout, f"Expected bat preference over batcat, got: {res_both.stdout}"
+
+        # Case D: Neither is available - falls back cleanly to cat / less
+        mock_bat.unlink()
+        mock_batcat.unlink()
+        env_none = dict(os.environ, PATH=str(mock_bin))
+        res_none = sp.run([BASH, str(search_script), 'preview', str(test_file)], env=env_none, capture_output=True, text=True)
+        assert res_none.returncode == 0, f"preview fallback failed: {res_none.stderr}"
+        assert test_file.read_text() in res_none.stdout or res_none.stdout == test_file.read_text(), (
+            f"Expected file contents on fallback, got: {res_none.stdout}"
+        )
+
+    log("Tier 6 passed: batcat vs bat detection logic verified successfully.")
+
+
+# ============================================================================
+# Tier 7: Portable Path Resolution (Symlinks, Paths with Spaces, No readlink -f)
+# ============================================================================
+def check_portable_path_resolution():
+    log("Tier 7: Testing portable path resolution on symlinks, paths with spaces, and without GNU readlink -f...")
+    with tempfile.TemporaryDirectory(prefix='shell-kit-path-res-') as tmp_str:
+        tmp_dir = Path(tmp_str)
+
+        # 1. Test multi-level symlink resolution with spaces in path names
+        dir_with_spaces = tmp_dir / "target directory with spaces"
+        dir_with_spaces.mkdir()
+        sub_dir = dir_with_spaces / "sub dir with spaces"
+        sub_dir.mkdir()
+        real_file = sub_dir / "real target config.txt"
+        real_file.write_text("CONFIG_DATA=1\n")
+
+        # Chain: link_c -> link_b -> link_a -> real_file
+        link_dir = tmp_dir / "link directory with spaces"
+        link_dir.mkdir()
+        link_a = link_dir / "symlink_a"
+        link_a.symlink_to(real_file)
+        link_b = link_dir / "symlink_b"
+        link_b.symlink_to(link_a)
+        link_c = link_dir / "symlink_c with spaces"
+        link_c.symlink_to(link_b)
+
+        # Portable resolution script mimicking resolve() from install.sh
+        resolve_test_sh = f'''
+        resolve() {{
+            local path=$1 dest count=0 dir base
+            while [ -L "$path" ]; do
+                count=$((count + 1)); [ "$count" -le 40 ] || exit 42
+                dest=$(readlink "$path")
+                case $dest in /*) path=$dest;; *) path=$(dirname "$path")/$dest;; esac
+            done
+            dir=$(dirname "$path")
+            base=${{path##*/}}
+            if [ -d "$dir" ]; then
+                dir=$(cd -P -- "$dir" 2>/dev/null && pwd -P)
+                if [ "$dir" = "/" ]; then path="/$base"
+                else path="$dir/$base"; fi
+            fi
+            printf '%s\\n' "$path"
+        }}
+        resolve "{link_c}"
+        '''
+        res = sp.run([BASH, '-c', resolve_test_sh], capture_output=True, text=True)
+        assert res.returncode == 0, f"Resolution script failed:\n{res.stderr}"
+        resolved_path = res.stdout.strip()
+        assert Path(resolved_path) == real_file.resolve(), (
+            f"Resolved path '{resolved_path}' does not match real file '{real_file.resolve()}'"
+        )
+
+        # 2. Verify scripts executed via symlinks in paths with spaces resolve their root correctly
+        space_bin_dir = tmp_dir / "bin with spaces"
+        space_bin_dir.mkdir()
+
+        # Symlink install.sh
+        symlinked_installer = space_bin_dir / "install_symlink.sh"
+        symlinked_installer.symlink_to(ROOT / "install.sh")
+        res_inst = sp.run(
+            [BASH, str(symlinked_installer), '--mode', 'vanilla', '--dry-run'],
+            capture_output=True, text=True
+        )
+        assert res_inst.returncode == 0, f"Symlinked install.sh in path with spaces failed:\n{res_inst.stderr}"
+
+        # Symlink uninstall.sh
+        symlinked_uninstaller = space_bin_dir / "uninstall_symlink.sh"
+        symlinked_uninstaller.symlink_to(ROOT / "uninstall.sh")
+        res_uninst = sp.run(
+            [BASH, str(symlinked_uninstaller), '--dry-run'],
+            capture_output=True, text=True
+        )
+        assert res_uninst.returncode == 0, f"Symlinked uninstall.sh in path with spaces failed:\n{res_uninst.stderr}"
+
+        # Symlink vanilla/configs
+        symlinked_configs = space_bin_dir / "configs_symlink"
+        symlinked_configs.symlink_to(ROOT / "vanilla" / "configs")
+        res_cfg = sp.run(
+            [BASH, str(symlinked_configs), '--help'],
+            capture_output=True, text=True
+        )
+        assert res_cfg.returncode == 0, f"Symlinked configs in path with spaces failed:\n{res_cfg.stderr}"
+        assert 'Usage: configs' in res_cfg.stdout
+
+        # 3. Environment where readlink -f / realpath fail (simulating macOS / BSD environment)
+        mock_env_dir = tmp_dir / "strict_posix_bin"
+        mock_env_dir.mkdir()
+        strict_readlink = mock_env_dir / "readlink"
+        strict_readlink.write_text('''#!/bin/sh
+for arg in "$@"; do
+    case $arg in
+        -f|-m|-e)
+            printf "readlink: illegal option -- %s\\n" "$arg" >&2
+            exit 1 ;;
+    esac
+done
+exec /bin/readlink "$@"
+''')
+        strict_readlink.chmod(0o755)
+
+        for tool in ('bash', 'sh', 'cat', 'cmp', 'cp', 'date', 'dirname', 'grep', 'ln',
+                     'mkdir', 'mktemp', 'mv', 'rm', 'stty', 'tail', 'chmod', 'find', 'sort', 'tr', 'sed', 'awk'):
+            p = shutil.which(tool)
+            if p:
+                (mock_env_dir / tool).symlink_to(p)
+
+        # Verify readlink -f indeed fails in this mock environment
+        strict_env = dict(os.environ, PATH=str(mock_env_dir), HOME=str(tmp_dir / 'strict_home'))
+        Path(strict_env['HOME']).mkdir()
+        for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV'):
+            strict_env.pop(key, None)
+
+        test_fail = sp.run([str(mock_env_dir / 'readlink'), '-f', str(real_file)], capture_output=True, text=True)
+        assert test_fail.returncode != 0, "Mock readlink -f did not fail as expected"
+
+        # Run install.sh under this strict environment (should succeed without using readlink -f)
+        install_res = sp.run(
+            [BASH, str(ROOT / 'install.sh'), '--components', 'helpers', '--mode', 'vanilla', '--yes'],
+            env=strict_env, capture_output=True, text=True
+        )
+        assert install_res.returncode == 0, f"install.sh failed in environment without readlink -f:\n{install_res.stderr}"
+
+    log("Tier 7 passed: Portable path resolution without GNU readlink -f across symlinks and spaces verified.")
+
+
 def main():
     log("Starting comprehensive portability and validation test suite...")
     check_shell_syntax()
     check_clean_home_and_nounset()
     check_optional_tool_fallbacks()
     check_idempotency()
-    log("All 4 portability tiers passed successfully!")
+    check_bash32_nounset_array_expansion()
+    check_batcat_detection_logic()
+    check_portable_path_resolution()
+    log("All 7 portability tiers passed successfully!")
     return 0
 
 

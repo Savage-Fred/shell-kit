@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Literal queries through standard Unix tools. No package manager needed.
 set -euo pipefail
+BAT_CMD=$(command -v bat || command -v batcat || true)
 mode=${1:-}; shift || :
 export SHELL_KIT_QUERY=${1:-}
 case $mode in
@@ -37,5 +38,19 @@ case $mode in
             /^[[:space:]]*$/ {if (emitting) print ""; emitting=0; next}
             index($0,ENVIRON["SHELL_KIT_QUERY"]) || emitting {emitting=1; print NR ": " $0}
         ' < "$2" ;;
-    *) printf 'Use aliases, sfind, dfind or pfind.\n' >&2; exit 2 ;;
+    preview)
+        [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { printf 'Usage: preview FILE [LINE]\n' >&2; exit 2; }
+        file=$1
+        line=${2:-}
+        if [ -n "$BAT_CMD" ]; then
+            if [ -n "$line" ]; then
+                exec "$BAT_CMD" --style=numbers --color=always --highlight-line "$line" "$file"
+            fi
+            exec "$BAT_CMD" --style=plain "$file"
+        fi
+        if command -v less >/dev/null 2>&1 && [ -t 1 ]; then
+            exec less -R "$file"
+        fi
+        exec cat "$file" ;;
+    *) printf 'Use aliases, sfind, dfind, pfind or preview.\n' >&2; exit 2 ;;
 esac

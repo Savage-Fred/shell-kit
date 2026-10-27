@@ -7,5 +7,10 @@ if [ -f "$HOME/.local/state/shell-kit/install.tsv" ]; then
     printf 'References are disabled. Run bash install.sh to enable them.\n' >&2
     exit 1
 fi
-root=$(cd "$(dirname "$0")/.." && pwd -P)
+SELF=$0
+while [ -L "$SELF" ]; do
+    target=$(readlink "$SELF")
+    case $target in /*) SELF=$target ;; *) SELF=$(dirname "$SELF")/$target ;; esac
+done
+root=$(cd -P -- "$(dirname "$SELF")/.." && pwd)
 exec "$root/bin/cheat-enhanced" "$@"
