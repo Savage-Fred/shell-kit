@@ -186,10 +186,10 @@ add_file() {
 }
 # Remove old blocks even if the user's config locations changed since last run.
 for ((i=0; i<${#old_files[@]}; i++)); do add_file "${old_files[$i]}" "${old_markers[$i]}" ''; done
-for path in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.tmux.conf" "$HOME/.vimrc" "$HOME/.config/nvim/init.vim" "$HOME/.config/nvim/init.lua"; do
+for path in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile" "$HOME/.zshrc" "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf" "$HOME/.vimrc" "$HOME/.vim/vimrc" "$HOME/.config/nvim/init.vim" "$HOME/.config/nvim/init.lua" "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/init.vim" "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/init.lua"; do
     marker='#'
     case $path in */.vimrc|*/init.vim) marker='"';; */init.lua) marker='--';; esac
-    if [ -f "$path" ] && grep -Fq "$marker BEGIN SHELL-KIT" "$path"; then add_file "$path" "$marker" ''; fi
+    if [ -f "$path" ] && grep -iq "$marker BEGIN SHELL-KIT" "$path"; then add_file "$path" "$marker" ''; fi
 done
 components=''
 for i in 0 1 2 3 4; do chosen "$i" && components="$components ${names[$i]}"; done
@@ -249,8 +249,8 @@ for ((i=0; i<${#paths[@]}; i++)); do
     staged[$i]="$work/$i"
     input=/dev/null; [ ! -f "$target" ] || input=$target
     if ! awk -v marker="${markers[$i]}" '
-        $0 == marker " BEGIN SHELL-KIT" {if (inside || seen++) exit 42; inside=1; next}
-        $0 == marker " END SHELL-KIT" {if (!inside) exit 42; inside=0; next}
+        tolower($0) == marker " begin shell-kit" {if (inside || seen++) exit 42; inside=1; next}
+        tolower($0) == marker " end shell-kit" {if (!inside) exit 42; inside=0; next}
         !inside {print}
         END {if (inside) exit 42}
     ' "$input" > "${staged[$i]}"; then die "Malformed managed block: $path"; fi
@@ -340,15 +340,10 @@ fi
 # a rerun that changes nothing leaves nothing behind.
 mkdir -p "$STATE"
 backup=''
-ensure_backup() {
-    [ -z "$backup" ] || return 0
-    mkdir -p "$STATE/backups"
-    backup=$(mktemp -d "$STATE/backups/install.$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
-}
 prune_backups() {
     local path oldest
     local kept=() next=()
-    for path in "$STATE"/backups/install.*; do
+    for path in "$STATE"/backups/*; do
         [ ! -d "$path" ] || kept+=("$path")
     done
     while [ "${#kept[@]}" -gt "$backup_keep" ]; do
@@ -366,23 +361,113 @@ prune_backups() {
         kept=("${next[@]}")
     done
 }
+
+needs_update=()
 for ((i=0; i<${#paths[@]}; i++)); do
     target=${targets[$i]}
     if cmp -s "$target" "${staged[$i]}"; then continue; fi
     if [ ! -e "$target" ] && [ ! -s "${staged[$i]}" ]; then continue; fi
+    needs_update+=("$i")
+done
+
+needs_backup=()
+seen_targets=()
+for i in "${needs_update[@]}"; do
+    target=${targets[$i]}
+    if [ -f "$target" ]; then
+        already_seen=0
+        for st in "${seen_targets[@]}"; do
+            if [ "$st" = "$target" ]; then already_seen=1; break; fi
+        done
+        if [ "$already_seen" = 0 ]; then
+            seen_targets+=("$target")
+            needs_backup+=("$i")
+        fi
+    fi
+done
+
+if [ "${#needs_backup[@]}" -gt 0 ]; then
+    mkdir -p "$STATE/backups"
+    ts=$(date +%Y%m%d_%H%M%S)
+    while [ -e "$STATE/backups/$ts" ]; do
+        cur=$ts
+        while [ "$(date +%Y%m%d_%H%M%S)" = "$cur" ]; do :; done
+        ts=$(date +%Y%m%d_%H%M%S)
+    done
+    backup="$STATE/backups/$ts"
+    mkdir -p "$backup"
+
+    printf '# shell-kit backup manifest: %s\n# target\tbackup_file\tsize_bytes\n' "$ts" > "$backup/manifest.txt"
+    : > "$backup/checksums.sha256"
+    : > "$backup/files.tsv"
+
+    for i in "${needs_backup[@]}"; do
+        target=${targets[$i]}
+        base="${target##*/}"
+        cp -p "$target" "$backup/$i"
+        cp -p "$target" "$backup/$base"
+        printf '%s\t%s\n' "$i" "$target" >> "$backup/files.tsv"
+        size=''
+        if has wc; then size=$(wc -c < "$target" 2>/dev/null | tr -d ' ' || :); fi
+        [ -n "$size" ] || size=$(awk '{total+=length($0)+1} END{print total+0}' "$target" 2>/dev/null || echo 0)
+        printf '%s\t%s\t%s\n' "$target" "$base" "$size" >> "$backup/manifest.txt"
+
+        if has sha256sum; then
+            (cd "$backup" && sha256sum "$base" >> "$backup/checksums.sha256")
+        elif has shasum; then
+            (cd "$backup" && shasum -a 256 "$base" >> "$backup/checksums.sha256")
+        elif has cksum; then
+            (cd "$backup" && cksum "$base" >> "$backup/checksums.sha256")
+        else
+            ck=$(awk '{for(j=1;j<=length;j++) s=(s*31+ord[substr($0,j,1)])%2147483647} END {print s}' "$target" 2>/dev/null || echo 0)
+            printf '%s  %s\n' "$ck" "$base" >> "$backup/checksums.sha256"
+        fi
+    done
+
+    # Verify backup is non-empty before touching any dotfile (AC1)
+    [ -d "$backup" ] || die "Pre-installation backup failed: directory not created: $backup"
+    [ -s "$backup/manifest.txt" ] || die "Pre-installation backup failed: empty manifest in $backup"
+    [ -s "$backup/checksums.sha256" ] || die "Pre-installation backup failed: empty checksums in $backup"
+    backed_count=0
+    for bf in "$backup"/*; do
+        [ -e "$bf" ] || continue
+        backed_count=$((backed_count + 1))
+    done
+    [ "$backed_count" -gt 0 ] || die "Pre-installation backup failed: backup directory is empty: $backup"
+fi
+
+written_targets=()
+for i in "${needs_update[@]}"; do
+    target=${targets[$i]}
+    path=${paths[$i]}
+    already_written=0
+    for wt in "${written_targets[@]}"; do
+        if [ "$wt" = "$target" ]; then already_written=1; break; fi
+    done
+    if [ "$already_written" = 1 ]; then continue; fi
+    written_targets+=("$target")
+
     mkdir -p "$(dirname "$target")"
     temp=$(mktemp "$target.shell-kit.XXXXXX")
     pending=$temp
     if [ -f "$target" ]; then
-        ensure_backup
-        cp -p "$target" "$backup/$i"
-        printf '%s\t%s\n' "$i" "$target" >> "$backup/files.tsv"
         cp -p "$target" "$temp"
     fi
     cat "${staged[$i]}" > "$temp"
-    mv -f "$temp" "$target"
+
+    if [ -L "$target" ]; then
+        real_target=$(readlink -f "$target" 2>/dev/null || resolve "$target")
+        cat "$temp" > "$real_target"
+        rm -f "$temp"
+    elif [ -L "$path" ]; then
+        mv -f "$temp" "$target"
+        [ -L "$path" ] || die "Symlink preservation failed: $path was replaced with a regular file"
+    else
+        mv -f "$temp" "$target"
+    fi
     pending=''
 done
+
 for ((i=0; i<${#link_paths[@]}; i++)); do
     path=${link_paths[$i]}; source=${link_sources[$i]}
     [ -n "$path" ] || continue
@@ -399,7 +484,17 @@ done
         [ -z "${bodies[$i]}" ] || printf 'file\t%s\t%s\n' "${markers[$i]}" "${paths[$i]}"
     done
 } > "$work/install.tsv"
-mv "$work/install.tsv" "$STATE/install.tsv"
+if [ "$uninstall" = 1 ]; then
+    rm -f "$STATE/install.tsv"
+    rm -f "$work/install.tsv"
+    rmdir "$RUNTIME" 2>/dev/null || :
+    rmdir "$(dirname "$RUNTIME")" 2>/dev/null || :
+    rmdir "$STATE" 2>/dev/null || :
+elif cmp -s "$work/install.tsv" "$STATE/install.tsv" 2>/dev/null; then
+    rm -f "$work/install.tsv"
+else
+    mv "$work/install.tsv" "$STATE/install.tsv"
+fi
 if [ -n "$backup" ]; then prune_backups; fi
 if [ -n "$backup" ]; then printf 'Saved. Backups: %s\n' "$backup"
 else printf 'Saved. No existing file needed a backup.\n'; fi
