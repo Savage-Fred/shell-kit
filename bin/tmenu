@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A roomy native fzf session chooser; cancellation does nothing."""
 import os
+import shutil
 import subprocess as sp
 import sys
 
@@ -8,12 +9,54 @@ result = sp.run(['tmux', 'list-sessions', '-F', '#{session_id}\t#{session_name}\
 if result.returncode:
     print('No sessions yet. Create one with: tn NAME')
     sys.exit(0)
+chosen = None
+if shutil.which('fzf'):
+    try:
+        spacing = ['--gap=1', '--padding=1', '--border-label= Sheila’s sessions '] if '--gap' in sp.check_output(['fzf', '--help'], text=True) else []
+        chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=Enter: attach / switch     Esc: cancel     Create: tn NAME', '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap', *spacing], input=result.stdout, text=True, stdout=sp.PIPE)
+    except Exception:
+        chosen = None
+
+if chosen is not None:
+    if chosen.returncode == 0:
+        target = chosen.stdout.split('\t')[0]
+        os.execvp('tmux', ['tmux', 'switch-client' if os.environ.get('TMUX') else 'attach-session', '-t', target])
+    sys.exit(0)
+
+# Graceful fallback when fzf is absent or unusable:
+lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+parsed = []
+for l in lines:
+    parts = l.split('\t')
+    sid = parts[0]
+    sname = parts[1] if len(parts) > 1 else sid
+    details = " - ".join(parts[2:]) if len(parts) > 2 else ""
+    parsed.append((sid, sname, details))
+
+print('Sheila’s sessions (install fzf for fuzzy search):')
+for idx, (sid, sname, details) in enumerate(parsed, 1):
+    info_str = f" ({details})" if details else ""
+    print(f"  {idx}) {sname}{info_str}")
+
+if sys.stdin.isatty():
+    print("\nEnter session number to attach/switch (or 'q' to cancel): ", end='', flush=True)
+
 try:
-    spacing = ['--gap=1', '--padding=1', '--border-label= Sheila’s sessions '] if '--gap' in sp.check_output(['fzf', '--help'], text=True) else []
-    chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=Enter: attach / switch     Esc: cancel     Create: tn NAME', '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap', *spacing], input=result.stdout, text=True, stdout=sp.PIPE)
-except FileNotFoundError:
-    print('Install fzf for the session picker. Sessions:\n' + result.stdout)
-    sys.exit(1)
-if chosen.returncode == 0:
-    target = chosen.stdout.split('\t')[0]
+    choice = sys.stdin.readline()
+except (EOFError, KeyboardInterrupt):
+    sys.exit(0)
+
+if not choice:
+    # Headless / EOF without input
+    sys.exit(0)
+
+choice = choice.strip()
+if not choice or choice.lower() in ('q', 'quit', 'exit', 'c', 'cancel'):
+    sys.exit(0)
+
+if choice.isdigit() and 1 <= int(choice) <= len(parsed):
+    target = parsed[int(choice) - 1][0]
     os.execvp('tmux', ['tmux', 'switch-client' if os.environ.get('TMUX') else 'attach-session', '-t', target])
+else:
+    print('Invalid selection.')
+    sys.exit(0)

@@ -2,7 +2,27 @@
 # Plain references: no Python, rendering library, or automatic layout changes.
 set -euo pipefail
 ROOT="$HOME/.local/share/shell-kit"
-action=${1:-list}
+if [ ! -d "$ROOT/sheets" ]; then
+    SELF=${BASH_SOURCE[0]:-$0}
+    while [ -L "$SELF" ]; do
+        target=$(readlink "$SELF")
+        case $target in /*) SELF=$target ;; *) SELF=$(dirname "$SELF")/$target ;; esac
+    done
+    ROOT=$(cd -P -- "$(dirname "$SELF")/.." && pwd)
+fi
+if [ -z "${1:-}" ]; then
+    if command -v fzf >/dev/null 2>&1 && [ -t 0 ] && [ -t 1 ]; then
+        sheets_list=$(for f in "$ROOT"/sheets/*.md; do [ -e "$f" ] || continue; n=${f##*/}; printf '%s\n' "${n%.md}"; done)
+        selected=$(printf '%s\n' "$sheets_list" | fzf --prompt='Sheet > ' --preview="cat \"$ROOT/sheets/{}.md\"" --preview-window='down:60%:wrap' || true)
+        if [ -n "$selected" ]; then
+            exec "$0" view "$selected"
+        fi
+        exit 0
+    fi
+    action=list
+else
+    action=$1
+fi
 case $action in
     list) printf 'Sheets:'; for file in "$ROOT"/sheets/*.md; do name=${file##*/}; printf ' %s' "${name%.md}"; done; printf '\n'; exit ;;
     profile) printf 'phone\n'; exit ;; # Manual help only in vanilla mode.
@@ -28,7 +48,7 @@ elif command -v less >/dev/null 2>&1 && [ -t 1 ]; then
 else
     BAT_CMD=$(command -v bat || command -v batcat || true)
     if [ -n "$BAT_CMD" ] && [ -t 1 ]; then
-        exec "$BAT_CMD" --plain "$file"
+        "$BAT_CMD" --plain "$file" 2>/dev/null && exit 0 || :
     fi
     cat "$file"
 fi

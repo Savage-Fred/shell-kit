@@ -9,6 +9,18 @@ if [ ! -f "$HOME/.local/state/shell-kit/install.tsv" ]; then
 fi
 case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' helpers '*)
 
+_sk_helpers=""
+if [ -d "${SHELL_KIT_ROOT-}/helpers" ]; then
+    _sk_helpers="$SHELL_KIT_ROOT/helpers"
+elif [ -n "${BASH_SOURCE[0]-}" ] && [ -d "$(dirname "${BASH_SOURCE[0]}")/../helpers" ]; then
+    _sk_helpers="$(cd -P -- "$(dirname "${BASH_SOURCE[0]}")/../helpers" && pwd)"
+fi
+if [ -n "$_sk_helpers" ]; then
+    [ -r "$_sk_helpers/functions.sh" ] && . "$_sk_helpers/functions.sh"
+    [ -r "$_sk_helpers/aliases.sh" ] && . "$_sk_helpers/aliases.sh"
+    [ -r "$_sk_helpers/prompt.sh" ] && . "$_sk_helpers/prompt.sh"
+fi
+
 if ! type aliases >/dev/null 2>&1; then
     function aliases {
         { alias; typeset -f; } | command shell-kit-search aliases "${1-}"
@@ -36,6 +48,20 @@ if ! type dfind >/dev/null 2>&1; then
 fi
 if ! type pfind >/dev/null 2>&1; then
     function pfind { command shell-kit-search pfind "$@"; }
+fi
+if ! type fif >/dev/null 2>&1; then
+    function fif {
+        local query="${1:-}"
+        local target="${2:-.}"
+        [ -n "$query" ] || { printf 'Usage: fif PATTERN [DIR]\n' >&2; return 0; }
+        local pager="cat"
+        if [ -t 1 ] && command -v less >/dev/null 2>&1; then pager="less -R"; fi
+        if command -v rg >/dev/null 2>&1; then
+            command rg --line-number --color=auto -- "$query" "$target" 2>/dev/null | $pager || true
+        else
+            command grep -r -n -H -- "$query" "$target" 2>/dev/null | $pager || true
+        fi
+    }
 fi
 ;; esac
 case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' tmux '*)

@@ -28,6 +28,10 @@ case $mode in
             fi
             exec grep -r -n -H -F -C 1 -- "$1" "$root"
         fi
+        FD_CMD=$(command -v fd || command -v fdfind || true)
+        if [ -n "$FD_CMD" ]; then
+            exec "$FD_CMD" --type d --hidden --exclude .git -i "$1" "$root"
+        fi
         find "$root" -type d -name .git -prune -o -type d -print | awk '
             {name=$0; sub(/^.*\//,"",name); if (index(tolower(name),tolower(ENVIRON["SHELL_KIT_QUERY"]))) print}
         ' ;;
@@ -38,19 +42,27 @@ case $mode in
             /^[[:space:]]*$/ {if (emitting) print ""; emitting=0; next}
             index($0,ENVIRON["SHELL_KIT_QUERY"]) || emitting {emitting=1; print NR ": " $0}
         ' < "$2" ;;
+    fif)
+        [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { printf 'Usage: fif TEXT [DIR]\n' >&2; exit 2; }
+        target=${2:-.}
+        if command -v rg >/dev/null 2>&1; then
+            exec rg --line-number --color=auto -- "$1" "$target"
+        fi
+        exec grep -r -n -H -- "$1" "$target" ;;
     preview)
         [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { printf 'Usage: preview FILE [LINE]\n' >&2; exit 2; }
         file=$1
         line=${2:-}
         if [ -n "$BAT_CMD" ]; then
             if [ -n "$line" ]; then
-                exec "$BAT_CMD" --style=numbers --color=always --highlight-line "$line" "$file"
+                "$BAT_CMD" --style=numbers --color=always --highlight-line "$line" "$file" 2>/dev/null && exit 0 || :
+            else
+                "$BAT_CMD" --style=plain "$file" 2>/dev/null && exit 0 || :
             fi
-            exec "$BAT_CMD" --style=plain "$file"
         fi
         if command -v less >/dev/null 2>&1 && [ -t 1 ]; then
             exec less -R "$file"
         fi
         exec cat "$file" ;;
-    *) printf 'Use aliases, sfind, dfind, pfind or preview.\n' >&2; exit 2 ;;
+    *) printf 'Use aliases, sfind, dfind, pfind, fif or preview.\n' >&2; exit 2 ;;
 esac
