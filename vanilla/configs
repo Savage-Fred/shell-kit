@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Bash 3.2 and standard Unix utilities; inspection never sources a config.
+if [ "${BASH_SOURCE-}" != "$0" ]; then
+    case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
+fi
 set -euo pipefail
 SELF=${BASH_SOURCE[0]}
 while [ -L "$SELF" ]; do

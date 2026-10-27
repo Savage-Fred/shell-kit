@@ -1,6 +1,6 @@
 # Source from interactive Bash or Zsh. Existing user definitions win.
 # shellcheck shell=bash
-case $- in *i*) ;; *) return ;; esac
+case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
 export SHELL_KIT_ROOT="$HOME/.local/share/shell-kit"
 case ":$PATH:" in *":$HOME/.local/share/shell-kit-runtime/bin:"*) ;; *) export PATH="$HOME/.local/share/shell-kit-runtime/bin:$PATH" ;; esac
 if [ ! -f "$HOME/.local/state/shell-kit/install.tsv" ]; then
@@ -12,8 +12,8 @@ case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' helpers '*)
 _sk_helpers=""
 if [ -d "${SHELL_KIT_ROOT-}/helpers" ]; then
     _sk_helpers="$SHELL_KIT_ROOT/helpers"
-elif [ -n "${BASH_SOURCE[0]-}" ] && [ -d "$(dirname "${BASH_SOURCE[0]}")/../helpers" ]; then
-    _sk_helpers="$(cd -P -- "$(dirname "${BASH_SOURCE[0]}")/../helpers" && pwd)"
+elif [ -n "${BASH_SOURCE-}" ] && [ -d "$(dirname "$BASH_SOURCE")/../helpers" ]; then
+    _sk_helpers="$(cd -P -- "$(dirname "$BASH_SOURCE")/../helpers" && pwd)"
 fi
 if [ -n "$_sk_helpers" ]; then
     [ -r "$_sk_helpers/functions.sh" ] && . "$_sk_helpers/functions.sh"

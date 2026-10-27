@@ -205,9 +205,11 @@ done
 components=''
 for i in 0 1 2 3 4; do chosen "$i" && components="$components ${names[$i]}"; done
 if chosen 0 || chosen 1 || chosen 2; then
-    body='if [ -n "${BASH_VERSION-}${ZSH_VERSION-}" ]; then
+    body='case $- in *i*)
+if [ -n "${BASH_VERSION-}${ZSH_VERSION-}" ]; then
 '"export SHELL_KIT_COMPONENTS='$components '"$'\n''[ -r "$HOME/.local/share/shell-kit/integrations/shell.sh" ] && . "$HOME/.local/share/shell-kit/integrations/shell.sh"
-fi'
+fi
+;; esac'
     add_file "$HOME/.bashrc" '#' "$body"
     add_file "${ZDOTDIR:-$HOME}/.zshrc" '#' "$body"
     login="$HOME/.bash_profile"
