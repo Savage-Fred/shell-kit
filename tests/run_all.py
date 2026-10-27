@@ -87,6 +87,7 @@ SUITES = [
     ('install_keys', [sys.executable, '-B', 'tests/install_keys.py'], needs_installer),
     ('configs_check', [sys.executable, '-B', 'tests/configs_check.py'],
      lambda: absent('awk', 'tr')),
+    ('portability_check', [sys.executable, '-B', 'tests/portability_check.py'], needs_installer),
     ('legacy', [sys.executable, '-m', 'unittest', 'discover', '-s',
                 'legacy/homelab-shell/scripts', '-p', 'test_*.py'], lambda: ''),
     ('render_check', [sys.executable, '-B', 'tests/render_check.py'], absent_rich),
