@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
 # Prompt initialization with starship guard and standard fallback.
 
 setup_prompt() {

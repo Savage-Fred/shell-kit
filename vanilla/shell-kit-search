@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Literal queries through standard Unix tools. No package manager needed.
+if [ "${BASH_SOURCE-}" != "$0" ]; then
+    case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
+fi
 set -euo pipefail
-BAT_CMD=$(command -v bat || command -v batcat || true)
 mode=${1:-}; shift || :
 export SHELL_KIT_QUERY=${1:-}
 case $mode in
@@ -53,6 +55,7 @@ case $mode in
         [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { printf 'Usage: preview FILE [LINE]\n' >&2; exit 2; }
         file=$1
         line=${2:-}
+        BAT_CMD=$(command -v bat 2>/dev/null || command -v batcat 2>/dev/null || true)
         if [ -n "$BAT_CMD" ]; then
             if [ -n "$line" ]; then
                 "$BAT_CMD" --style=numbers --color=always --highlight-line "$line" "$file" 2>/dev/null && exit 0 || :

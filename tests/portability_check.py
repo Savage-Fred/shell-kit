@@ -9,6 +9,8 @@ Satisfies Requirement R2 (cross-OS/cross-distro compatibility):
 5. Bash 3.2 nounset empty array expansion verification (${arr[@]+"${arr[@]}"}).
 6. batcat vs bat detection and fallback logic across distributions.
 7. Portable path resolution on symlinks, spaces, and environments without GNU readlink -f.
+8. Graceful degradation when optional dependencies (rg, fd, fzf, bat, eza, starship) are missing.
+9. Shell startup latency benchmark (<15ms), non-interactive hygiene (0 bytes stdout/stderr), and tmux hook hardening.
 """
 import hashlib
 import os
@@ -18,6 +20,7 @@ import shutil
 import subprocess as sp
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 BASH = os.environ.get('SHELL_KIT_TEST_BASH', '/bin/bash')
@@ -640,7 +643,7 @@ def check_missing_optional_dependency_fallbacks():
         . "{ROOT}/helpers/functions.sh"
         fif "target_token_found" "{test_files_dir}"
         '''
-        res_fif = sp.run([BASH, '-c', fif_script], env=env, capture_output=True, text=True)
+        res_fif = sp.run([BASH, '-i', '-c', fif_script], env=env, capture_output=True, text=True)
         assert res_fif.returncode == 0, f"fif failed in restricted environment: {res_fif.stderr}"
         assert 'target_token_found' in res_fif.stdout, f"fif output did not contain matching line: {res_fif.stdout}"
         assert 'alpha.txt' in res_fif.stdout, f"fif output did not include filename: {res_fif.stdout}"
@@ -651,7 +654,7 @@ def check_missing_optional_dependency_fallbacks():
         . "{ROOT}/helpers/functions.sh"
         fif "completely_absent_string_xyz" "{test_files_dir}"
         '''
-        res_fif_nomatch = sp.run([BASH, '-c', fif_no_match], env=env, capture_output=True, text=True)
+        res_fif_nomatch = sp.run([BASH, '-i', '-c', fif_no_match], env=env, capture_output=True, text=True)
         assert res_fif_nomatch.returncode == 0, f"fif crashed on no match: {res_fif_nomatch.stderr}"
 
         # --------------------------------------------------------------------
@@ -667,7 +670,7 @@ def check_missing_optional_dependency_fallbacks():
         echo "===PFIND==="
         pfind "nested" "{test_files_dir}"
         '''
-        res_find = sp.run([BASH, '-c', find_script], env=env, capture_output=True, text=True)
+        res_find = sp.run([BASH, '-i', '-c', find_script], env=env, capture_output=True, text=True)
         assert res_find.returncode == 0, f"find helpers failed when fd missing: {res_find.stderr}"
         out_find = res_find.stdout
         assert "alpha.txt" in out_find, f"sfind POSIX fallback failed: {out_find}"
@@ -685,7 +688,7 @@ def check_missing_optional_dependency_fallbacks():
         dfind "test" "{test_files_dir}"
         pfind "test" "{test_files_dir}"
         '''
-        res_mock_find = sp.run([BASH, '-c', mock_find_script], env=env, capture_output=True, text=True)
+        res_mock_find = sp.run([BASH, '-i', '-c', mock_find_script], env=env, capture_output=True, text=True)
         assert res_mock_find.returncode == 0, f"fd invocation failed: {res_mock_find.stderr}"
         assert res_mock_find.stdout.count("MOCK_FD_INVOKED") == 3, f"mock fd not called for all 3 functions: {res_mock_find.stdout}"
         mock_fd.unlink()
@@ -766,7 +769,7 @@ echo "MOCK_TMUX_ACTION: $@"
         . "{ROOT}/helpers/prompt.sh"
         echo "PS1_EFFECTIVE=$PS1"
         '''
-        res_prompt = sp.run([BASH, '-c', prompt_script], env=env, capture_output=True, text=True)
+        res_prompt = sp.run([BASH, '-i', '-c', prompt_script], env=env, capture_output=True, text=True)
         assert res_prompt.returncode == 0, f"helpers/prompt.sh failed under set -u without starship: {res_prompt.stderr}"
         assert "starship: command not found" not in res_prompt.stderr, f"Starship error leaked: {res_prompt.stderr}"
         assert "PS1_EFFECTIVE=" in res_prompt.stdout and len(res_prompt.stdout.strip()) > len("PS1_EFFECTIVE="), "Fallback prompt was not set"
@@ -779,7 +782,7 @@ echo "MOCK_TMUX_ACTION: $@"
         . "{ROOT}/helpers/prompt.sh"
         echo "STARSHIP_STATUS=${{STARSHIP_LOADED:-0}}"
         '''
-        res_mock_prompt = sp.run([BASH, '-c', mock_prompt_script], env=env, capture_output=True, text=True)
+        res_mock_prompt = sp.run([BASH, '-i', '-c', mock_prompt_script], env=env, capture_output=True, text=True)
         assert res_mock_prompt.returncode == 0, f"prompt failed with starship: {res_mock_prompt.stderr}"
         assert "STARSHIP_STATUS=1" in res_mock_prompt.stdout, f"starship init was not invoked: {res_mock_prompt.stdout}"
         mock_starship.unlink()
@@ -794,7 +797,7 @@ echo "MOCK_TMUX_ACTION: $@"
         alias l
         alias la
         '''
-        res_alias = sp.run([BASH, '-c', alias_script], env=env, capture_output=True, text=True)
+        res_alias = sp.run([BASH, '-i', '-c', alias_script], env=env, capture_output=True, text=True)
         assert res_alias.returncode == 0, f"aliases.sh failed when eza missing: {res_alias.stderr}"
         assert "ls -la" in res_alias.stdout, f"ll did not fall back to ls -la: {res_alias.stdout}"
 
@@ -803,12 +806,161 @@ echo "MOCK_TMUX_ACTION: $@"
         mock_eza.write_text('#!/bin/sh\nexit 0\n')
         mock_eza.chmod(0o755)
 
-        res_mock_alias = sp.run([BASH, '-c', alias_script], env=env, capture_output=True, text=True)
+        res_mock_alias = sp.run([BASH, '-i', '-c', alias_script], env=env, capture_output=True, text=True)
         assert res_mock_alias.returncode == 0, f"aliases.sh failed with eza present: {res_mock_alias.stderr}"
         assert "eza -la" in res_mock_alias.stdout, f"ll did not use eza when present: {res_mock_alias.stdout}"
         mock_eza.unlink()
 
     log("Tier 8 passed: Graceful degradation for optional dependencies (rg, fd, fzf, bat, eza, starship) verified.")
+
+
+# ============================================================================
+# Tier 9: Shell Startup Latency Benchmark & Non-Interactive Session Hardening
+# ============================================================================
+def check_startup_latency_and_noninteractive_hygiene():
+    log("Tier 9: Testing startup latency benchmark, non-interactive hygiene, and tmux hook hardening...")
+
+    scripts_to_verify = [
+        ROOT / 'integrations' / 'shell.sh',
+        ROOT / 'helpers' / 'functions.sh',
+        ROOT / 'helpers' / 'aliases.sh',
+        ROOT / 'helpers' / 'prompt.sh',
+        ROOT / 'vanilla' / 'configs',
+        ROOT / 'vanilla' / 'shell-kit-search',
+    ]
+
+    shells_to_test = [BASH]
+    sh_bin = shutil.which('sh')
+    if sh_bin and sh_bin != BASH:
+        shells_to_test.append(sh_bin)
+
+    with tempfile.TemporaryDirectory(prefix='shell-kit-tier9-') as tmp_dir_str:
+        tmp_dir = Path(tmp_dir_str)
+        env = dict(os.environ, HOME=str(tmp_dir))
+        for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV'):
+            env.pop(key, None)
+
+        # 1. Non-interactive hygiene: strictly 0 bytes stdout, 0 bytes stderr, exit 0 under set -u
+        for script in scripts_to_verify:
+            assert script.is_file(), f"Target script {script} not found"
+            for shell in shells_to_test:
+                # 1a. Sourced in non-interactive shell under set -u
+                res_source = sp.run(
+                    [shell, '-u', '-c', f'. "{script}"'],
+                    env=env, capture_output=True, text=True
+                )
+                assert res_source.returncode == 0, (
+                    f"Non-interactive sourcing of {script.name} with {shell} failed with exit {res_source.returncode}:\n"
+                    f"stdout: {res_source.stdout}\nstderr: {res_source.stderr}"
+                )
+                assert res_source.stdout == "", (
+                    f"Non-interactive sourcing of {script.name} with {shell} leaked stdout: {repr(res_source.stdout)}"
+                )
+                assert res_source.stderr == "", (
+                    f"Non-interactive sourcing of {script.name} with {shell} leaked stderr: {repr(res_source.stderr)}"
+                )
+
+                # 1b. Direct execution in non-interactive shell under set -u (for rc/helper scripts)
+                if script.name in ('shell.sh', 'functions.sh', 'aliases.sh', 'prompt.sh'):
+                    res_exec = sp.run(
+                        [shell, '-u', str(script)],
+                        env=env, capture_output=True, text=True
+                    )
+                    assert res_exec.returncode == 0, (
+                        f"Non-interactive direct execution of {script.name} with {shell} failed with exit {res_exec.returncode}:\n"
+                        f"stdout: {res_exec.stdout}\nstderr: {res_exec.stderr}"
+                    )
+                    assert res_exec.stdout == "", (
+                        f"Non-interactive direct execution of {script.name} with {shell} leaked stdout: {repr(res_exec.stdout)}"
+                    )
+                    assert res_exec.stderr == "", (
+                        f"Non-interactive direct execution of {script.name} with {shell} leaked stderr: {repr(res_exec.stderr)}"
+                    )
+
+        # 2. Benchmark non-interactive startup latency over 20 iterations (< 15.0 ms mean)
+        iterations = 20
+        timings = []
+        source_cmd = [BASH, '-c', f'. "{ROOT}/integrations/shell.sh"']
+        # Warmup iteration
+        sp.run(source_cmd, env=env, capture_output=True)
+
+        for _ in range(iterations):
+            t_start = time.perf_counter()
+            res_bench = sp.run(source_cmd, env=env, capture_output=True, text=True)
+            t_elapsed = time.perf_counter() - t_start
+            assert res_bench.returncode == 0, f"Benchmark run failed:\n{res_bench.stderr}"
+            assert res_bench.stdout == "", f"Benchmark run produced stdout: {res_bench.stdout}"
+            assert res_bench.stderr == "", f"Benchmark run produced stderr: {res_bench.stderr}"
+            timings.append(t_elapsed)
+
+        mean_ms = (sum(timings) / len(timings)) * 1000.0
+        log(f"Tier 9 Benchmark: non-interactive startup latency = {mean_ms:.3f} ms over {iterations} iterations (threshold < 15.0 ms)")
+        assert mean_ms < 15.0, f"Non-interactive startup latency exceeds threshold: {mean_ms:.2f} ms >= 15.0 ms"
+
+        # 3. Interactive startup functions properly and all helpers are available
+        interactive_script = f'''
+        . "{ROOT}/integrations/shell.sh"
+        type fif
+        type sfind
+        type dfind
+        type pfind
+        type tn
+        type ta
+        type td
+        type aliases
+        type configs
+        '''
+        res_interactive = sp.run(
+            [BASH, '--norc', '-i', '-c', interactive_script],
+            env=env, capture_output=True, text=True
+        )
+        assert res_interactive.returncode == 0, (
+            f"Interactive startup failed:\nstdout: {res_interactive.stdout}\nstderr: {res_interactive.stderr}"
+        )
+        for expected_helper in ('fif', 'sfind', 'dfind', 'pfind', 'tn', 'ta', 'td', 'aliases', 'configs'):
+            assert f"{expected_helper} is a function" in res_interactive.stdout or f"{expected_helper}()" in res_interactive.stdout, (
+                f"Helper {expected_helper} missing from interactive session:\n{res_interactive.stdout}"
+            )
+
+        # 4. Tmux hooks hardening: verify hooks withstand empty/detached client attributes
+        tmux_conf = ROOT / 'integrations' / 'tmux.conf'
+        assert tmux_conf.is_file(), "tmux.conf not found"
+        tmux_content = tmux_conf.read_text()
+        assert 'client_tty' in tmux_content
+        assert '-n' in tmux_content and '#{client_tty}' in tmux_content, (
+            "tmux.conf hooks must check for client_tty presence before executing cheat attach"
+        )
+        assert '|| true' in tmux_content, "tmux.conf hooks must include || true safeguard"
+
+        # Test cheat-enhanced attach and cleanup with empty/detached client parameters
+        res_attach_empty = sp.run(
+            [sys.executable, str(ROOT / 'bin' / 'cheat-enhanced'), 'attach', '', ''],
+            env=env, capture_output=True, text=True
+        )
+        assert res_attach_empty.returncode == 0, f"cheat-enhanced attach with empty args crashed:\n{res_attach_empty.stderr}"
+        assert res_attach_empty.stderr == "", f"cheat-enhanced attach with empty args leaked error:\n{res_attach_empty.stderr}"
+
+        res_cleanup_empty = sp.run(
+            [sys.executable, str(ROOT / 'bin' / 'cheat-enhanced'), 'cleanup', ''],
+            env=env, capture_output=True, text=True
+        )
+        assert res_cleanup_empty.returncode == 0, f"cheat-enhanced cleanup with empty arg crashed:\n{res_cleanup_empty.stderr}"
+        assert res_cleanup_empty.stderr == "", f"cheat-enhanced cleanup with empty arg leaked error:\n{res_cleanup_empty.stderr}"
+
+        # Test vanilla/cheat attach and cleanup
+        res_vcheat_attach = sp.run(
+            [BASH, str(ROOT / 'vanilla' / 'cheat'), 'attach'],
+            env=env, capture_output=True, text=True
+        )
+        assert res_vcheat_attach.returncode == 0, f"vanilla/cheat attach failed: {res_vcheat_attach.stderr}"
+
+        res_vcheat_cleanup = sp.run(
+            [BASH, str(ROOT / 'vanilla' / 'cheat'), 'cleanup'],
+            env=env, capture_output=True, text=True
+        )
+        assert res_vcheat_cleanup.returncode == 0, f"vanilla/cheat cleanup failed: {res_vcheat_cleanup.stderr}"
+
+    log("Tier 9 passed: Shell startup latency benchmark, non-interactive hygiene, and tmux hook resilience verified.")
 
 
 def main():
@@ -821,9 +973,11 @@ def main():
     check_batcat_detection_logic()
     check_portable_path_resolution()
     check_missing_optional_dependency_fallbacks()
-    log("All 8 portability tiers passed successfully!")
+    check_startup_latency_and_noninteractive_hygiene()
+    log("All 9 portability tiers passed successfully!")
     return 0
 
 
 if __name__ == '__main__':
     sys.exit(main())
+

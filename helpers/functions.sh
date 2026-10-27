@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
 # Shared shell helper functions with graceful degradation for optional dependencies.
 # Supported fallbacks:
 #   fif:    rg + fzf + bat/batcat -> grep -rn + less/cat

@@ -164,30 +164,36 @@ def main(args):
         if len(args) != 2:
             return  # Detached creation has no client; its later attach sets policy.
         target, tty = args
+        if not target or not tty:
+            return
         record = client_file(tty)
         kind = record.read_text().strip() if record.exists() else 'phone'
         with locked():
-            if tty not in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
+            client_list = tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines()
+            if not client_list or tty not in client_list:
                 return  # Ignore callbacks after their client left or pane disappeared.
             try:
-                tm('set-option', '-t', target, '@shell_kit_client', kind)
+                tm('set-option', '-t', target, '@shell_kit_client', kind, check=False)
                 if kind not in ('desktop', 'macbook'):
                     close(target, automatic=True)
                 else:
                     sidebar('tmux', target, 'open', automatic=True)
-            except sp.CalledProcessError:
-                # The client or target can disappear after the first check.
-                if tty in tm('list-clients', '-t', target, '-F', '#{client_tty}', check=False).splitlines():
-                    raise
+            except (sp.CalledProcessError, Exception):
+                return
         return
     if action == 'cleanup':
+        if not args or not args[0]:
+            return
         with locked():
             try:
                 rows = panes(args[0])
-            except sp.CalledProcessError:
+            except (sp.CalledProcessError, Exception):
                 return  # The last pane may have already removed this window.
             if rows and all(r[1] for r in rows):
-                close(args[0])
+                try:
+                    close(args[0])
+                except (sp.CalledProcessError, Exception):
+                    pass
         return
     if action == 'close-owner':
         if os.environ.get('TMUX'):
