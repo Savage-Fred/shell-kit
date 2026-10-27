@@ -106,8 +106,6 @@ def sidebar(topic, target, action='toggle', owner='', automatic=False):
     tm('select-pane', '-t', pid, '-T', 'Help: ' + topic)
 
 def view(topic):
-    if not shutil.which('less'):
-        raise RuntimeError('Install less, then retry (see README).')
     source = (ROOT / 'sheets' / (topic + '.md')).read_text()
     if topic == 'tmux' and os.environ.get('CHEAT_TIPS', '1') != '0':
         source = source.replace('\n', '\n\n> ' + tip() + '\n', 1)
@@ -120,6 +118,13 @@ def view(topic):
     content = sp.check_output([str(python) if python.exists() else sys.executable,
                               str(ROOT / 'bin/render-sheet'),
                               str(min(80, shutil.get_terminal_size().columns)), theme], input=source.encode())
+    if not shutil.which('less'):
+        bat = shutil.which('bat') or shutil.which('batcat')
+        if bat and sys.stdout.isatty():
+            sp.run([bat, '--plain'], input=content, check=False)
+        else:
+            sys.stdout.buffer.write(content)
+        return
     # A private temporary file resets position; no remembered editor cursor.
     with tempfile.TemporaryDirectory(prefix='shell-kit-') as tmp:
         path = Path(tmp) / 'sheet'

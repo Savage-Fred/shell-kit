@@ -36,6 +36,9 @@ def check_shell_syntax():
         ROOT / 'install.sh',
         ROOT / 'uninstall.sh',
         ROOT / 'integrations' / 'shell.sh',
+        ROOT / 'helpers' / 'functions.sh',
+        ROOT / 'helpers' / 'aliases.sh',
+        ROOT / 'helpers' / 'prompt.sh',
         ROOT / 'vanilla' / 'cheat',
         ROOT / 'vanilla' / 'configs',
         ROOT / 'vanilla' / 'shell-kit-search',
@@ -352,6 +355,9 @@ def check_bash32_nounset_array_expansion():
         ROOT / 'install.sh',
         ROOT / 'uninstall.sh',
         ROOT / 'bin' / 'cheat',
+        ROOT / 'helpers' / 'functions.sh',
+        ROOT / 'helpers' / 'aliases.sh',
+        ROOT / 'helpers' / 'prompt.sh',
         ROOT / 'vanilla' / 'cheat',
         ROOT / 'vanilla' / 'configs',
         ROOT / 'vanilla' / 'shell-kit-search',
@@ -588,6 +594,223 @@ exec /bin/readlink "$@"
     log("Tier 7 passed: Portable path resolution without GNU readlink -f across symlinks and spaces verified.")
 
 
+# ============================================================================
+# Tier 8: Missing Optional Dependency Graceful Degradation & Fallback Wrappers
+# ============================================================================
+def check_missing_optional_dependency_fallbacks():
+    log("Tier 8: Testing graceful degradation when optional dependencies (rg, fd, fzf, bat, eza, starship) are absent...")
+    with tempfile.TemporaryDirectory(prefix='shell-kit-fallbacks-tier8-') as tmp_dir_str:
+        tmp_dir = Path(tmp_dir_str)
+        home = tmp_dir / 'home'
+        home.mkdir()
+        restricted_bin = tmp_dir / 'restricted_bin'
+        restricted_bin.mkdir()
+
+        # Populate restricted_bin with only basic POSIX utilities
+        essential_tools = [
+            'bash', 'sh', 'awk', 'cat', 'cmp', 'cp', 'date', 'dirname', 'ln',
+            'mkdir', 'mktemp', 'mv', 'readlink', 'rm', 'stty', 'tail',
+            'chmod', 'grep', 'find', 'sort', 'tr', 'sed', 'head', 'python3'
+        ]
+        for tool in essential_tools:
+            tool_path = shutil.which(tool)
+            if tool_path:
+                (restricted_bin / tool).symlink_to(tool_path)
+
+        # Explicitly verify optional tools are absent
+        for missing_tool in ('rg', 'fd', 'fdfind', 'fzf', 'bat', 'batcat', 'eza', 'starship', 'less'):
+            assert not (restricted_bin / missing_tool).exists(), f"{missing_tool} should not exist in restricted_bin"
+
+        env = dict(os.environ, HOME=str(home), PATH=str(restricted_bin))
+        for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV'):
+            env.pop(key, None)
+
+        test_files_dir = tmp_dir / 'test_files'
+        test_files_dir.mkdir()
+        (test_files_dir / 'alpha.txt').write_text("first line\ntarget_token_found\nthird line\n")
+        (test_files_dir / 'beta.log').write_text("another file without match\n")
+        sub_dir = test_files_dir / 'my_special_dir'
+        sub_dir.mkdir()
+        (sub_dir / 'nested.txt').write_text("nested text\n")
+
+        # --------------------------------------------------------------------
+        # 1. fif: Missing rg, fzf, bat/batcat falls back cleanly to grep -rn & pager
+        # --------------------------------------------------------------------
+        fif_script = f'''
+        . "{ROOT}/helpers/functions.sh"
+        fif "target_token_found" "{test_files_dir}"
+        '''
+        res_fif = sp.run([BASH, '-c', fif_script], env=env, capture_output=True, text=True)
+        assert res_fif.returncode == 0, f"fif failed in restricted environment: {res_fif.stderr}"
+        assert 'target_token_found' in res_fif.stdout, f"fif output did not contain matching line: {res_fif.stdout}"
+        assert 'alpha.txt' in res_fif.stdout, f"fif output did not include filename: {res_fif.stdout}"
+
+        # Test fif with non-matching pattern under set -e (must not crash)
+        fif_no_match = f'''
+        set -e
+        . "{ROOT}/helpers/functions.sh"
+        fif "completely_absent_string_xyz" "{test_files_dir}"
+        '''
+        res_fif_nomatch = sp.run([BASH, '-c', fif_no_match], env=env, capture_output=True, text=True)
+        assert res_fif_nomatch.returncode == 0, f"fif crashed on no match: {res_fif_nomatch.stderr}"
+
+        # --------------------------------------------------------------------
+        # 2. sfind, dfind, pfind: Missing fd falls back cleanly to POSIX find
+        # --------------------------------------------------------------------
+        find_script = f'''
+        set -e
+        . "{ROOT}/helpers/functions.sh"
+        echo "===SFIND==="
+        sfind "alpha" "{test_files_dir}"
+        echo "===DFIND==="
+        dfind "special" "{test_files_dir}"
+        echo "===PFIND==="
+        pfind "nested" "{test_files_dir}"
+        '''
+        res_find = sp.run([BASH, '-c', find_script], env=env, capture_output=True, text=True)
+        assert res_find.returncode == 0, f"find helpers failed when fd missing: {res_find.stderr}"
+        out_find = res_find.stdout
+        assert "alpha.txt" in out_find, f"sfind POSIX fallback failed: {out_find}"
+        assert "my_special_dir" in out_find, f"dfind POSIX fallback failed: {out_find}"
+        assert "nested.txt" in out_find, f"pfind POSIX fallback failed: {out_find}"
+
+        # Test sfind, dfind, pfind with mock fd present
+        mock_fd = restricted_bin / 'fd'
+        mock_fd.write_text('#!/bin/sh\necho "MOCK_FD_INVOKED: $@"\n')
+        mock_fd.chmod(0o755)
+
+        mock_find_script = f'''
+        . "{ROOT}/helpers/functions.sh"
+        sfind "test" "{test_files_dir}"
+        dfind "test" "{test_files_dir}"
+        pfind "test" "{test_files_dir}"
+        '''
+        res_mock_find = sp.run([BASH, '-c', mock_find_script], env=env, capture_output=True, text=True)
+        assert res_mock_find.returncode == 0, f"fd invocation failed: {res_mock_find.stderr}"
+        assert res_mock_find.stdout.count("MOCK_FD_INVOKED") == 3, f"mock fd not called for all 3 functions: {res_mock_find.stdout}"
+        mock_fd.unlink()
+
+        # --------------------------------------------------------------------
+        # 3. bin/tmenu: Missing fzf degrades cleanly without crashing or exiting 1
+        # --------------------------------------------------------------------
+        mock_tmux = restricted_bin / 'tmux'
+        mock_tmux.write_text('''#!/bin/sh
+if [ "$1" = "list-sessions" ]; then
+    printf "s1\\twork_session\\t3 windows\\tdetached\\ns2\\tdev_session\\t1 windows\\tdetached\\n"
+    exit 0
+fi
+echo "MOCK_TMUX_ACTION: $@"
+''')
+        mock_tmux.chmod(0o755)
+
+        # 3a: Non-interactive execution (pipes/headless): prints session list and exits 0
+        tmenu_bin = ROOT / 'bin' / 'tmenu'
+        res_tmenu_headless = sp.run([sys.executable, str(tmenu_bin)], input="", env=env, capture_output=True, text=True)
+        assert res_tmenu_headless.returncode == 0, f"tmenu failed when fzf missing: {res_tmenu_headless.stderr}"
+        assert "work_session" in res_tmenu_headless.stdout, f"work_session not in tmenu output: {res_tmenu_headless.stdout}"
+        assert "dev_session" in res_tmenu_headless.stdout, f"dev_session not in tmenu output: {res_tmenu_headless.stdout}"
+
+        # 3b: Interactive selection via piped input: selecting 1 invokes attach-session
+        res_tmenu_select = sp.run([sys.executable, str(tmenu_bin)], input="1\n", env=env, capture_output=True, text=True)
+        assert res_tmenu_select.returncode == 0, f"tmenu selection failed: {res_tmenu_select.stderr}"
+        assert "MOCK_TMUX_ACTION: attach-session -t s1" in res_tmenu_select.stdout, f"tmenu did not attach target session: {res_tmenu_select.stdout}"
+
+        # 3c: Piped cancel: entering 'q' cancels and exits 0 cleanly
+        res_tmenu_cancel = sp.run([sys.executable, str(tmenu_bin)], input="q\n", env=env, capture_output=True, text=True)
+        assert res_tmenu_cancel.returncode == 0, f"tmenu cancellation failed: {res_tmenu_cancel.stderr}"
+        mock_tmux.unlink()
+
+        # --------------------------------------------------------------------
+        # 4. vanilla/cheat & bin/cheat-enhanced: Missing fzf/less/bat degrade to cat
+        # --------------------------------------------------------------------
+        # 4a: vanilla/cheat with missing less and bat outputs plain markdown
+        res_vcheat = sp.run([BASH, str(ROOT / 'vanilla' / 'cheat'), 'tmux'], env=env, capture_output=True, text=True)
+        assert res_vcheat.returncode == 0, f"vanilla/cheat failed when less/bat absent: {res_vcheat.stderr}"
+        expected_sheet = (ROOT / 'sheets' / 'tmux.md').read_text()
+        assert res_vcheat.stdout == expected_sheet, "vanilla/cheat output did not match expected sheet content"
+
+        # 4b: vanilla/cheat without arguments when fzf is missing degrades cleanly to 'list'
+        res_vcheat_list = sp.run([BASH, str(ROOT / 'vanilla' / 'cheat')], env=env, capture_output=True, text=True)
+        assert res_vcheat_list.returncode == 0, f"vanilla/cheat with no args failed: {res_vcheat_list.stderr}"
+        assert res_vcheat_list.stdout.startswith("Sheets:"), f"vanilla/cheat did not fall back to list: {res_vcheat_list.stdout}"
+
+        # 4c: bin/cheat-enhanced view with missing less degrades to plain output without error
+        res_echeat = sp.run([sys.executable, str(ROOT / 'bin' / 'cheat-enhanced'), 'view', 'tmux'], env=env, capture_output=True, text=True)
+        assert res_echeat.returncode == 0, f"bin/cheat-enhanced failed when less absent: {res_echeat.stderr}"
+        assert "tmux" in res_echeat.stdout.lower(), "bin/cheat-enhanced did not produce expected output"
+
+        # --------------------------------------------------------------------
+        # 5. vanilla/shell-kit-search: Fallbacks for preview, dfind, and fif
+        # --------------------------------------------------------------------
+        search_bin = ROOT / 'vanilla' / 'shell-kit-search'
+        # 5a: preview when bat and less are missing falls back to cat
+        res_prev = sp.run([BASH, str(search_bin), 'preview', str(ROOT / 'sheets' / 'tmux.md'), '10'], env=env, capture_output=True, text=True)
+        assert res_prev.returncode == 0, f"preview fallback to cat failed: {res_prev.stderr}"
+        assert expected_sheet in res_prev.stdout or len(res_prev.stdout) > 0, "preview failed to output file content"
+
+        # 5b: dfind when fd is missing falls back to find
+        res_search_dfind = sp.run([BASH, str(search_bin), 'dfind', 'sheets', str(ROOT)], env=env, capture_output=True, text=True)
+        assert res_search_dfind.returncode == 0, f"shell-kit-search dfind failed: {res_search_dfind.stderr}"
+        assert "sheets" in res_search_dfind.stdout, f"sheets directory not found by dfind: {res_search_dfind.stdout}"
+
+        # 5c: fif when rg is missing falls back to grep
+        res_search_fif = sp.run([BASH, str(search_bin), 'fif', 'Prefix', str(ROOT / 'sheets' / 'tmux.md')], env=env, capture_output=True, text=True)
+        assert res_search_fif.returncode == 0, f"shell-kit-search fif failed: {res_search_fif.stderr}"
+        assert "Prefix" in res_search_fif.stdout, f"Prefix not found by fif: {res_search_fif.stdout}"
+
+        # --------------------------------------------------------------------
+        # 6. Prompt: Starship guard prevents command-not-found & sets fallback PS1
+        # --------------------------------------------------------------------
+        prompt_script = f'''
+        set -u
+        . "{ROOT}/helpers/prompt.sh"
+        echo "PS1_EFFECTIVE=$PS1"
+        '''
+        res_prompt = sp.run([BASH, '-c', prompt_script], env=env, capture_output=True, text=True)
+        assert res_prompt.returncode == 0, f"helpers/prompt.sh failed under set -u without starship: {res_prompt.stderr}"
+        assert "starship: command not found" not in res_prompt.stderr, f"Starship error leaked: {res_prompt.stderr}"
+        assert "PS1_EFFECTIVE=" in res_prompt.stdout and len(res_prompt.stdout.strip()) > len("PS1_EFFECTIVE="), "Fallback prompt was not set"
+
+        # Test prompt when mock starship is present
+        mock_starship = restricted_bin / 'starship'
+        mock_starship.write_text('#!/bin/sh\nif [ "$1" = "init" ]; then echo "export STARSHIP_LOADED=1"; exit 0; fi\n')
+        mock_starship.chmod(0o755)
+        mock_prompt_script = f'''
+        . "{ROOT}/helpers/prompt.sh"
+        echo "STARSHIP_STATUS=${{STARSHIP_LOADED:-0}}"
+        '''
+        res_mock_prompt = sp.run([BASH, '-c', mock_prompt_script], env=env, capture_output=True, text=True)
+        assert res_mock_prompt.returncode == 0, f"prompt failed with starship: {res_mock_prompt.stderr}"
+        assert "STARSHIP_STATUS=1" in res_mock_prompt.stdout, f"starship init was not invoked: {res_mock_prompt.stdout}"
+        mock_starship.unlink()
+
+        # --------------------------------------------------------------------
+        # 7. Directory Aliases: eza vs ls fallback logic
+        # --------------------------------------------------------------------
+        alias_script = f'''
+        shopt -s expand_aliases
+        . "{ROOT}/helpers/aliases.sh"
+        alias ll
+        alias l
+        alias la
+        '''
+        res_alias = sp.run([BASH, '-c', alias_script], env=env, capture_output=True, text=True)
+        assert res_alias.returncode == 0, f"aliases.sh failed when eza missing: {res_alias.stderr}"
+        assert "ls -la" in res_alias.stdout, f"ll did not fall back to ls -la: {res_alias.stdout}"
+
+        # Test directory aliases when mock eza is present
+        mock_eza = restricted_bin / 'eza'
+        mock_eza.write_text('#!/bin/sh\nexit 0\n')
+        mock_eza.chmod(0o755)
+
+        res_mock_alias = sp.run([BASH, '-c', alias_script], env=env, capture_output=True, text=True)
+        assert res_mock_alias.returncode == 0, f"aliases.sh failed with eza present: {res_mock_alias.stderr}"
+        assert "eza -la" in res_mock_alias.stdout, f"ll did not use eza when present: {res_mock_alias.stdout}"
+        mock_eza.unlink()
+
+    log("Tier 8 passed: Graceful degradation for optional dependencies (rg, fd, fzf, bat, eza, starship) verified.")
+
+
 def main():
     log("Starting comprehensive portability and validation test suite...")
     check_shell_syntax()
@@ -597,7 +820,8 @@ def main():
     check_bash32_nounset_array_expansion()
     check_batcat_detection_logic()
     check_portable_path_resolution()
-    log("All 7 portability tiers passed successfully!")
+    check_missing_optional_dependency_fallbacks()
+    log("All 8 portability tiers passed successfully!")
     return 0
 
 
