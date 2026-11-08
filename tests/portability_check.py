@@ -698,6 +698,7 @@ def check_missing_optional_dependency_fallbacks():
         # --------------------------------------------------------------------
         mock_tmux = restricted_bin / 'tmux'
         mock_tmux.write_text('''#!/bin/sh
+[ "$1" = "-u" ] && shift
 if [ "$1" = "list-sessions" ]; then
     printf "s1\\twork_session\\t3 windows\\tdetached\\ns2\\tdev_session\\t1 windows\\tdetached\\n"
     exit 0

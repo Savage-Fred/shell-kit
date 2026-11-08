@@ -200,6 +200,19 @@ def main():
                 time.sleep(0.1)
             assert state() == 'S', 'thaw did not resume the work: ' + state()
 
+            # Freezing the session you are in must not stop this script itself.
+            marker = home / 'self-freeze.done'
+            tm('send-keys', '-t', '=busy:', 'C-c', '')
+            time.sleep(0.3)
+            tm('send-keys', '-t', '=busy:',
+               '%s %s freeze busy; echo $? > %s' % (BASH, SCRIPT, marker), 'Enter')
+            for _ in range(50):
+                if marker.exists() and marker.read_text().strip():
+                    break
+                time.sleep(0.1)
+            assert marker.exists() and marker.read_text().strip() == '0', \
+                'freezing the current session stopped tsessions itself'
+
             # Auto-named numeric sessions (0, 1) must not be confused with
             # window index 0 of the most recent session when freezing.
             tm('new-session', '-d', '-s', '0')
@@ -253,8 +266,9 @@ def main():
             assert 'keepme' in remaining, remaining
         finally:
             tm('kill-server', check=False)
-            sp.run(['systemctl', '--user', 'stop', scope + '.scope'],
-                   capture_output=True)
+            if shutil.which('systemctl'):
+                sp.run(['systemctl', '--user', 'stop', scope + '.scope'],
+                       capture_output=True)
     print('tsessions checks passed')
     return 0
 
