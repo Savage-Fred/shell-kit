@@ -9,17 +9,63 @@ result = sp.run(['tmux', '-u', 'list-sessions', '-F', '#{session_id}\t#{session_
 if result.returncode:
     print('No sessions yet. Create one with: tn NAME')
     sys.exit(0)
-try:
-    spacing = ['--gap=1', '--padding=1', '--border-label= Sheila’s sessions '] if '--gap' in sp.check_output(['fzf', '--help'], text=True) else []
-    chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=Enter: attach / switch     Esc: cancel     Create: tn NAME', '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap', *spacing], input=result.stdout, text=True, stdout=sp.PIPE)
-except FileNotFoundError:
-    print('Install fzf for the session picker. Sessions:\n' + result.stdout)
-    sys.exit(1)
-if chosen.returncode == 0:
-    target = chosen.stdout.split('\t')[0]
+
+
+def attach(target):
     verb = 'switch-client' if os.environ.get('TMUX') else 'attach-session'
     # Route through tsessions when present so the server keeps its own systemd
     # scope and outlives the terminal it was started from.
     if not os.environ.get('TMUX') and shutil.which('tsessions'):
         os.execvp('tsessions', ['tsessions', 'run', verb, '-t', target])
     os.execvp('tmux', ['tmux', verb, '-t', target])
+
+
+chosen = None
+if shutil.which('fzf') and sys.stdin.isatty() and sys.stdout.isatty():
+    try:
+        spacing = ['--gap=1', '--padding=1', '--border-label= Sheila’s sessions '] if '--gap' in sp.check_output(['fzf', '--help'], text=True) else []
+        chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=Enter: attach / switch     Esc: cancel     Create: tn NAME', '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap', *spacing], input=result.stdout, text=True, stdout=sp.PIPE)
+    except Exception:
+        chosen = None
+
+if chosen is not None:
+    if chosen.returncode == 0:
+        attach(chosen.stdout.split('\t')[0])
+    sys.exit(0)
+
+# Graceful fallback when fzf is absent or unusable:
+lines = [l for l in result.stdout.strip().splitlines() if l.strip()]
+parsed = []
+for l in lines:
+    parts = l.split('\t')
+    sid = parts[0]
+    sname = parts[1] if len(parts) > 1 else sid
+    details = " - ".join(parts[2:]) if len(parts) > 2 else ""
+    parsed.append((sid, sname, details))
+
+print('Sheila’s sessions (install fzf for fuzzy search):')
+for idx, (sid, sname, details) in enumerate(parsed, 1):
+    info_str = f" ({details})" if details else ""
+    print(f"  {idx}) {sname}{info_str}")
+
+if sys.stdin.isatty():
+    print("\nEnter session number to attach/switch (or 'q' to cancel): ", end='', flush=True)
+
+try:
+    choice = sys.stdin.readline()
+except (EOFError, KeyboardInterrupt):
+    sys.exit(0)
+
+if not choice:
+    # Headless / EOF without input
+    sys.exit(0)
+
+choice = choice.strip()
+if not choice or choice.lower() in ('q', 'quit', 'exit', 'c', 'cancel'):
+    sys.exit(0)
+
+if choice.isdigit() and 1 <= int(choice) <= len(parsed):
+    attach(parsed[int(choice) - 1][0])
+else:
+    print('Invalid selection.')
+    sys.exit(0)

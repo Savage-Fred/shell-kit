@@ -1,6 +1,6 @@
 # Source from interactive Bash or Zsh. Existing user definitions win.
 # shellcheck shell=bash
-case $- in *i*) ;; *) return ;; esac
+case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
 export SHELL_KIT_ROOT="$HOME/.local/share/shell-kit"
 case ":$PATH:" in *":$HOME/.local/share/shell-kit-runtime/bin:"*) ;; *) export PATH="$HOME/.local/share/shell-kit-runtime/bin:$PATH" ;; esac
 if [ ! -f "$HOME/.local/state/shell-kit/install.tsv" ]; then
@@ -8,6 +8,18 @@ if [ ! -f "$HOME/.local/state/shell-kit/install.tsv" ]; then
     case ":$PATH:" in *":$SHELL_KIT_ROOT/bin:"*) ;; *) export PATH="$SHELL_KIT_ROOT/bin:$PATH" ;; esac
 fi
 case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' helpers '*)
+
+_sk_helpers=""
+if [ -d "${SHELL_KIT_ROOT-}/helpers" ]; then
+    _sk_helpers="$SHELL_KIT_ROOT/helpers"
+elif [ -n "${BASH_SOURCE-}" ] && [ -d "$(dirname "$BASH_SOURCE")/../helpers" ]; then
+    _sk_helpers="$(cd -P -- "$(dirname "$BASH_SOURCE")/../helpers" && pwd)"
+fi
+if [ -n "$_sk_helpers" ]; then
+    [ -r "$_sk_helpers/functions.sh" ] && . "$_sk_helpers/functions.sh"
+    [ -r "$_sk_helpers/aliases.sh" ] && . "$_sk_helpers/aliases.sh"
+    [ -r "$_sk_helpers/prompt.sh" ] && . "$_sk_helpers/prompt.sh"
+fi
 
 if ! type aliases >/dev/null 2>&1; then
     function aliases {
@@ -36,6 +48,20 @@ if ! type dfind >/dev/null 2>&1; then
 fi
 if ! type pfind >/dev/null 2>&1; then
     function pfind { command shell-kit-search pfind "$@"; }
+fi
+if ! type fif >/dev/null 2>&1; then
+    function fif {
+        local query="${1:-}"
+        local target="${2:-.}"
+        [ -n "$query" ] || { printf 'Usage: fif PATTERN [DIR]\n' >&2; return 0; }
+        local pager="cat"
+        if [ -t 1 ] && command -v less >/dev/null 2>&1; then pager="less -R"; fi
+        if command -v rg >/dev/null 2>&1; then
+            command rg --line-number --color=auto -- "$query" "$target" 2>/dev/null | $pager || true
+        else
+            command grep -r -n -H -- "$query" "$target" 2>/dev/null | $pager || true
+        fi
+    }
 fi
 ;; esac
 case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' tmux '*)

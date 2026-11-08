@@ -2,6 +2,7 @@
 """Exercise component installation with synthetic configs and a minimal PATH."""
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess as sp
 import tempfile
@@ -43,6 +44,16 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     backups = home / '.local/state/shell-kit/backups'
     after_install = sorted(path.name for path in backups.iterdir())
     assert len(after_install) == 1, after_install
+    backup_dir = backups / after_install[0]
+    assert re.match(r'^\d{8}_\d{6}$', backup_dir.name), f"Backup directory {backup_dir.name} is not YYYYMMDD_HHMMSS"
+    manifest = backup_dir / 'manifest.txt'
+    checksums = backup_dir / 'checksums.sha256'
+    assert manifest.is_file() and manifest.stat().st_size > 0, "Manifest missing or empty"
+    assert checksums.is_file() and checksums.stat().st_size > 0, "Checksums missing or empty"
+    backed_files = [f for f in backup_dir.iterdir() if f.is_file() and f.name not in ('manifest.txt', 'checksums.sha256', 'files.tsv')]
+    assert len(backed_files) > 0, "No backed up files found in backup dir"
+    for bf in backed_files:
+        assert bf.stat().st_size > 0, f"Backed up file {bf} is empty"
     run(*args, '--yes')
     assert (home / '.bashrc').read_bytes() == installed, 'rerun changed config'
     # A rerun that replaces nothing must not leave an empty backup directory.
@@ -59,7 +70,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-install-') as folder:
     assert len(remaining) == 10, remaining
     assert 'install.Z00005' not in remaining, remaining
     assert 'install.Z00006' in remaining, remaining
-    assert any(name not in after_install and name.startswith('install.20')
+    assert any(name not in after_install and (re.match(r'^\d{8}_\d{6}$', name) or name.startswith('install.20'))
                for name in remaining), remaining
     (home / '.bashrc').write_bytes(installed)
     runtime = home / '.local/share/shell-kit-runtime/bin'
