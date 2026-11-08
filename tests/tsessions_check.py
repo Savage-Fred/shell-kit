@@ -200,18 +200,28 @@ def main():
                 time.sleep(0.1)
             assert state() == 'S', 'thaw did not resume the work: ' + state()
 
-            # Freezing the session you are in must not stop this script itself.
+            # Freezing the session you are in must not stop this script or the
+            # caller that ran it (here a nested bash -c, like an agent tool).
             marker = home / 'self-freeze.done'
             tm('send-keys', '-t', '=busy:', 'C-c', '')
             time.sleep(0.3)
             tm('send-keys', '-t', '=busy:',
-               '%s %s freeze busy; echo $? > %s' % (BASH, SCRIPT, marker), 'Enter')
+               "bash -c '%s %s freeze busy; echo $? > %s'" % (BASH, SCRIPT, marker),
+               'Enter')
             for _ in range(50):
                 if marker.exists() and marker.read_text().strip():
                     break
                 time.sleep(0.1)
             assert marker.exists() and marker.read_text().strip() == '0', \
                 'freezing the current session stopped tsessions itself'
+
+            # A window target keeps the session exact instead of prefix-matching.
+            tm('new-session', '-d', '-s', 'work-old')
+            tm('new-window', '-t', '=work-old:')
+            assert run('kill', 'work:1').returncode != 0, 'tk work:1 matched work-old'
+            count = tm('list-windows', '-t', '=work-old:', '-F', '#{window_index}').stdout.split()
+            assert len(count) == 2, count
+            tm('kill-session', '-t', '=work-old')
 
             # Auto-named numeric sessions (0, 1) must not be confused with
             # window index 0 of the most recent session when freezing.

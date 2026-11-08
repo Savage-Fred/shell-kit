@@ -58,13 +58,28 @@ descendants_of() {
 
 # Suspend a session's work without discarding it. This releases CPU only: the
 # processes keep their memory, so kill the session to reclaim that.
+# This process and every caller above it (a nested shell, a pipeline, an
+# agent's tool call). Run from inside the target session they are pane
+# descendants too, and stopping them would leave the freeze half done.
+ancestors_of() {
+    ps -eo pid,ppid 2>/dev/null | SK_ROOT=$1 awk '
+        NR > 1 { parent[$1] = $2 }
+        END {
+            for (p = ENVIRON["SK_ROOT"]; p != "" && p > 1 && !(p in seen); p = parent[p]) {
+                seen[p] = 1; print p
+            }
+        }'
+}
+
 signal_session() {
-    local pane pid count=0
+    local pane pid count=0 skip
+    skip=" $(ancestors_of $$ | tr '\n' ' ') "
     for pane in $(tmux list-panes -s -t "=$1:" -F '#{pane_pid}' 2>/dev/null); do
+        # ponytail: a pane process itself is never signalled, because tmux
+        # SIGCONTs a stopped pane process at once; panes started as
+        # `tmux new 'cmd'` therefore cannot be frozen this way.
         for pid in $(descendants_of "$pane"); do
-            # Run from inside the target session, this script is a descendant
-            # too; stopping itself would leave the freeze half done.
-            [ "$pid" = "$$" ] && continue
+            case $skip in *" $pid "*) continue ;; esac
             kill -"$2" "$pid" 2>/dev/null && count=$((count + 1))
         done
     done
@@ -211,15 +226,21 @@ case $action in
             select_rows '' | render >&2
             exit 1
         fi
-        name=$(resolve "$pattern") || exit 1
-        if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "=$name"; else register_client; exec tmux attach-session -t "=$name"; fi
+        case $pattern in
+            # A colon names a window (tmux target syntax); keep the session exact.
+            :*) target=$pattern ;;
+            *:*) target="=$pattern" ;;
+            *) name=$(resolve "$pattern") || exit 1; target="=$name" ;;
+        esac
+        if [ -n "${TMUX-}" ]; then exec tmux switch-client -t "$target"; else register_client; exec tmux attach-session -t "$target"; fi
         ;;
     kill)
         [ -n "$pattern" ] || { printf 'usage: tsessions kill PATTERN\n' >&2; exit 1; }
         # A colon means the caller is naming a window, which has no pattern
         # search: tmux target syntax is already exact.
         case $pattern in
-            *:*) exec tmux kill-window -t "$pattern" ;;
+            :*) exec tmux kill-window -t "$pattern" ;;
+            *:*) exec tmux kill-window -t "=$pattern" ;;
         esac
         name=$(resolve "$pattern") || exit 1
         tmux kill-session -t "=$name" && printf 'Killed session %s\n' "$name"
