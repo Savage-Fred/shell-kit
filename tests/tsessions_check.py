@@ -2,6 +2,7 @@
 """Session search/resolve checks against an isolated tmux server."""
 import os
 from pathlib import Path
+import shutil
 import subprocess as sp
 import sys
 import tempfile
@@ -113,6 +114,43 @@ def main():
             assert 'No session matches' in missing.stderr, missing.stderr
             # The failure still shows what is available.
             assert 'alpha' in missing.stderr, missing.stderr
+
+            # An exact name wins over one that differs only in case.
+            tm('new-session', '-d', '-s', 'Proj')
+            tm('new-session', '-d', '-s', 'proj')
+            assert run('which', 'proj').stdout.strip() == 'proj'
+            assert run('which', 'Proj').stdout.strip() == 'Proj'
+            assert run('which', 'PROJ').returncode == 1, 'case-only match must be ambiguous'
+            tm('kill-session', '-t', '=Proj')
+            tm('kill-session', '-t', '=proj')
+
+            # attach hands tmux an exact target for a name, a pattern and
+            # SESSION:WINDOW, and switches instead inside tmux. With no terminal
+            # here, a shim records the attach call and passes the rest through.
+            shim = home / 'shim'
+            shim.mkdir()
+            calls = home / 'attach.log'
+            (shim / 'tmux').write_text(
+                '#!/bin/sh\nfor a in "$@"; do case $a in attach-session|switch-client) '
+                'printf "%%s\\n" "$*" >> "%s"; exit 0;; esac; done\nexec "%s" "$@"\n'
+                % (calls, shutil.which('tmux')))
+            (shim / 'tmux').chmod(0o755)
+            shim_env = dict(env, PATH='%s:%s' % (shim, env.get('PATH', '')))
+
+            def attach(*args, **extra):
+                calls.write_text('')
+                done = sp.run([BASH, SCRIPT, 'attach', *args], env=dict(shim_env, **extra),
+                              text=True, capture_output=True)
+                assert done.returncode == 0, done.stderr
+                return calls.read_text().strip()
+
+            tm('new-session', '-d', '-s', 'work-old')
+            assert attach('alpha') == 'attach-session -t =alpha'
+            assert attach('widgets') == 'attach-session -t =beta'
+            assert attach('work:1') == 'attach-session -t =work:1', 'must not prefix-match work-old'
+            assert attach('=alpha:0') == 'attach-session -t =alpha:0'
+            assert attach('beta', TMUX='%s,0,0' % socket) == 'switch-client -t =beta'
+            tm('kill-session', '-t', '=work-old')
             # HOME abbreviation must respect a path boundary: a sibling
             # directory sharing the HOME prefix is not inside HOME.
             sibling = Path(str(home) + 'ow')

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Find and attach tmux sessions by name, running command, or working directory.
-# Usable from a shell alias or directly: ssh HOST -t tsessions attach work
+# Usable from a shell alias or directly (non-interactive SSH has no runtime PATH):
+#   ssh HOST -t '$HOME/.local/share/shell-kit-runtime/bin/tsessions attach work'
 set -u
 
 register_client() {
-    [ -z "${TMUX-}" ] && [ -t 0 ] || return 0
+    [ -z "${TMUX-}" ] && [ -t 0 ] && [ -n "${HOME-}" ] || return 0
     local cheat="$HOME/.local/share/shell-kit-runtime/bin/cheat"
     [ -x "$cheat" ] && "$cheat" register >/dev/null 2>&1 || true
 }
@@ -14,7 +15,8 @@ USAGE="usage: tsessions [list|attach|which] [PATTERN]"
 fields=$'#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_activity}\t#{pane_current_command}\t#{pane_current_path}\t#{window_active}\t#{pane_active}\t#{@shell_kit}'
 
 select_rows() {
-    # Tier 1 exact name, tier 2 name prefix, tier 3 name/command/path substring
+    # Tier 1 exact name, 2 exact name ignoring case, 3 name prefix, 4 name/command/path
+    # substring
     # across any work pane in the session (skipping helper panes for display).
     tmux -u list-panes -a -F "$fields" 2>/dev/null | SK_PATTERN=$1 awk -F'\t' '
         BEGIN { pat = tolower(ENVIRON["SK_PATTERN"]) }
@@ -36,12 +38,13 @@ select_rows() {
             for (i = 1; i <= n; i++) {
                 s = order[i]; ls = tolower(s)
                 c = cmd[s]; d = path[s]
-                if (pat == "") tier = 3
-                else if (ls == pat) tier = 1
-                else if (index(ls, pat) == 1) tier = 2
-                else if (index(ls, pat)) tier = 3
-                else if (hit[s]) { tier = 3; c = hit_cmd[s]; d = hit_path[s] }
-                else if (index(tolower(c), pat) || index(tolower(d), pat)) tier = 3
+                if (pat == "") tier = 4
+                else if (s == ENVIRON["SK_PATTERN"]) tier = 1
+                else if (ls == pat) tier = 2
+                else if (index(ls, pat) == 1) tier = 3
+                else if (index(ls, pat)) tier = 4
+                else if (hit[s]) { tier = 4; c = hit_cmd[s]; d = hit_path[s] }
+                else if (index(tolower(c), pat) || index(tolower(d), pat)) tier = 4
                 else continue
                 printf "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", tier, s, att[s], win[s], act[s], c, d
             }
@@ -137,7 +140,7 @@ case $action in
         fi
         case $pattern in
             # A colon names a window (tmux target syntax); keep the session exact.
-            :*) target=$pattern ;;
+            :*|=*) target=$pattern ;;
             *:*) target="=$pattern" ;;
             *) name=$(resolve "$pattern") || exit 1; target="=$name" ;;
         esac
