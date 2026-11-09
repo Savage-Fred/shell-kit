@@ -123,6 +123,12 @@ def main():
             assert run('which', 'PROJ').returncode == 1, 'case-only match must be ambiguous'
             tm('kill-session', '-t', '=Proj')
             tm('kill-session', '-t', '=proj')
+            # ...and is compared as text: awk alone would find "1" == "01".
+            tm('new-session', '-d', '-s', '1')
+            tm('new-session', '-d', '-s', '01')
+            assert run('which', '1').stdout.strip() == '1'
+            tm('kill-session', '-t', '=1')
+            tm('kill-session', '-t', '=01')
 
             # attach hands tmux an exact target for a name, a pattern and
             # SESSION:WINDOW, and switches instead inside tmux. With no terminal

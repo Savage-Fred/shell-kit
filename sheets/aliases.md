@@ -41,6 +41,7 @@ tmenu            # readable tmux session chooser
 tl               # list/search tmux sessions by name, command, path
 tn work          # create named tmux session
 ta work          # attach/switch by name or pattern (no argument: most recent)
+ta work:2        # exact session, that window
 td               # detach current tmux client
 ```
 

@@ -19,7 +19,8 @@ select_rows() {
     # substring
     # across any work pane in the session (skipping helper panes for display).
     tmux -u list-panes -a -F "$fields" 2>/dev/null | SK_PATTERN=$1 awk -F'\t' '
-        BEGIN { pat = tolower(ENVIRON["SK_PATTERN"]) }
+        # raw is forced to a string: awk compares number-like strings numerically ("1" == "01")
+        BEGIN { raw = ENVIRON["SK_PATTERN"] ""; pat = tolower(raw) }
         {
             s = $1
             if (!seen[s]++) order[++n] = s
@@ -39,7 +40,7 @@ select_rows() {
                 s = order[i]; ls = tolower(s)
                 c = cmd[s]; d = path[s]
                 if (pat == "") tier = 4
-                else if (s == ENVIRON["SK_PATTERN"]) tier = 1
+                else if (s == raw) tier = 1
                 else if (ls == pat) tier = 2
                 else if (index(ls, pat) == 1) tier = 3
                 else if (index(ls, pat)) tier = 4
