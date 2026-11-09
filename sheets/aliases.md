@@ -38,8 +38,9 @@ sfind 'text' .   # full paths and one line of surrounding context
 dfind 'part' .   # directories by partial name
 pfind 'text' log # match through the next blank line
 tmenu            # readable tmux session chooser
+tl               # list/search tmux sessions by name, command, path
 tn work          # create named tmux session
-ta work          # attach/switch to named session
+ta work          # attach/switch by name or pattern (no argument: most recent)
 td               # detach current tmux client
 ```
 
