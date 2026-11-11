@@ -22,6 +22,9 @@ def main():
                    PYTHONDONTWRITEBYTECODE='1')
         env.pop('TMUX', None)
         env.pop('TMUX_PANE', None)
+        # Never touch the owner's real scope unit.
+        scope = 'shell-kit-test-%d' % os.getpid()
+        env['SHELL_KIT_TMUX_SCOPE'] = scope
 
         def run(*args):
             return sp.run([BASH, SCRIPT, *args], env=env, text=True,
@@ -114,7 +117,6 @@ def main():
             assert 'No session matches' in missing.stderr, missing.stderr
             # The failure still shows what is available.
             assert 'alpha' in missing.stderr, missing.stderr
-
             # An exact name wins over one that differs only in case.
             tm('new-session', '-d', '-s', 'Proj')
             tm('new-session', '-d', '-s', 'proj')
@@ -131,8 +133,7 @@ def main():
             tm('kill-session', '-t', '=01')
 
             # attach hands tmux an exact target for a name, a pattern and
-            # SESSION:WINDOW, and switches instead inside tmux. With no terminal
-            # here, a shim records the attach call and passes the rest through.
+            # SESSION:WINDOW, and switches instead inside tmux.
             shim = home / 'shim'
             shim.mkdir()
             calls = home / 'attach.log'
@@ -169,8 +170,156 @@ def main():
                 assert str(sibling) in shown.stdout, shown.stdout
             finally:
                 sibling.rmdir()
+            # Creating the server through the scoped runner must leave it in
+            # its own cgroup, so the terminal dying cannot take it along.
+            if shutil.which('systemd-run'):
+                tm('kill-server', check=False)
+                time.sleep(0.3)
+                made = run('run', 'new-session', '-d', '-s', 'scoped')
+                assert made.returncode == 0, made.stderr
+                time.sleep(0.5)
+                pid = tm('list-sessions', '-F', '#{pid}').stdout.strip().splitlines()[0]
+                if sys.platform == 'linux':
+                    cgroup = Path('/proc/%s/cgroup' % pid).read_text()
+                    assert scope in cgroup, cgroup
+                # Starting another server when the base scope unit is already
+                # active must not stop the live server in that scope.
+                other_tmp = home / 'other-sock'
+                other_tmp.mkdir()
+                other_env = dict(env, TMUX_TMPDIR=str(other_tmp))
+                try:
+                    second = sp.run([BASH, SCRIPT, 'run', 'new-session', '-d', '-s', 'second-srv'],
+                                    env=other_env, text=True, capture_output=True)
+                    assert second.returncode == 0, second.stderr
+                    assert 'scoped' in tm('list-sessions', '-F', '#{session_name}').stdout
+                finally:
+                    sp.run(['tmux', 'kill-server'], env=other_env, capture_output=True)
+                # Restarting with the same scope unit must cleanly clear any lingering unit.
+                tm('kill-server', check=False)
+                time.sleep(0.3)
+                restarted = run('run', 'new-session', '-d', '-s', 'scoped-restarted')
+                assert restarted.returncode == 0, restarted.stderr
+                # Opting out must fall back to a plain, unscoped tmux.
+                tm('kill-server', check=False)
+                time.sleep(0.3)
+                env['SHELL_KIT_TMUX_SCOPE'] = 'off'
+                plain = run('run', 'new-session', '-d', '-s', 'unscoped')
+                assert plain.returncode == 0, plain.stderr
+                time.sleep(0.4)
+                pid = tm('list-sessions', '-F', '#{pid}').stdout.strip().splitlines()[0]
+                if sys.platform == 'linux':
+                    assert scope not in Path('/proc/%s/cgroup' % pid).read_text()
+                env['SHELL_KIT_TMUX_SCOPE'] = scope
+
+            # Suspending must reach the work, not the idle pane shell: job
+            # control gives each job its own process group.
+            tm('kill-server', check=False)
+            time.sleep(0.3)
+            tm('new-session', '-d', '-s', 'busy')
+            time.sleep(0.4)
+            tm('send-keys', '-t', 'busy', 'sleep 600', 'Enter')
+            time.sleep(1.0)
+            pane = tm('list-panes', '-s', '-t', 'busy', '-F', '#{pane_pid}').stdout.strip()
+            kid = sp.run(['ps', '-eo', 'pid,ppid'], text=True, capture_output=True).stdout
+            child = [l.split()[0] for l in kid.splitlines()[1:]
+                     if len(l.split()) > 1 and l.split()[1] == pane]
+            assert child, 'no child process in the pane'
+            state = lambda: sp.run(['ps', '-o', 'state=', '-p', child[0]],
+                                   text=True, capture_output=True).stdout.strip()[:1]
+            assert state() == 'S', state()
+            frozen = run('freeze', 'busy')
+            assert frozen.returncode == 0, frozen.stderr
+            for _ in range(30):
+                if state() == 'T':
+                    break
+                time.sleep(0.1)
+            assert state() == 'T', 'freeze did not stop the work: ' + state()
+            assert run('thaw', 'busy').returncode == 0
+            for _ in range(30):
+                if state() == 'S':
+                    break
+                time.sleep(0.1)
+            assert state() == 'S', 'thaw did not resume the work: ' + state()
+
+            # Freezing the session you are in must not stop this script or the
+            # caller that ran it (here a nested bash -c, like an agent tool).
+            marker = home / 'self-freeze.done'
+            tm('send-keys', '-t', '=busy:', 'C-c', '')
+            time.sleep(0.3)
+            tm('send-keys', '-t', '=busy:',
+               "bash -c '%s %s freeze busy; echo $? > %s'" % (BASH, SCRIPT, marker),
+               'Enter')
+            for _ in range(50):
+                if marker.exists() and marker.read_text().strip():
+                    break
+                time.sleep(0.1)
+            assert marker.exists() and marker.read_text().strip() == '0', \
+                'freezing the current session stopped tsessions itself'
+
+            # A window target keeps the session exact instead of prefix-matching.
+            tm('new-session', '-d', '-s', 'work-old')
+            tm('new-window', '-t', '=work-old:')
+            assert run('kill', 'work:1').returncode != 0, 'tk work:1 matched work-old'
+            count = tm('list-windows', '-t', '=work-old:', '-F', '#{window_index}').stdout.split()
+            assert len(count) == 2, count
+            tm('kill-session', '-t', '=work-old')
+
+            # Auto-named numeric sessions (0, 1) must not be confused with
+            # window index 0 of the most recent session when freezing.
+            tm('new-session', '-d', '-s', '0')
+            tm('new-session', '-d', '-s', '1')
+            time.sleep(0.3)
+            tm('send-keys', '-t', '=0:', 'sleep 600', 'Enter')
+            tm('send-keys', '-t', '=1:', 'sleep 600', 'Enter')
+            time.sleep(0.8)
+            pane0 = tm('list-panes', '-s', '-t', '=0:', '-F', '#{pane_pid}').stdout.strip()
+            pane1 = tm('list-panes', '-s', '-t', '=1:', '-F', '#{pane_pid}').stdout.strip()
+            kid_num = sp.run(['ps', '-eo', 'pid,ppid'], text=True, capture_output=True).stdout
+            child0 = [l.split()[0] for l in kid_num.splitlines()[1:]
+                      if len(l.split()) > 1 and l.split()[1] == pane0]
+            child1 = [l.split()[0] for l in kid_num.splitlines()[1:]
+                      if len(l.split()) > 1 and l.split()[1] == pane1]
+            assert child0 and child1, (child0, child1)
+            state_of = lambda p: sp.run(['ps', '-o', 'state=', '-p', p],
+                                        text=True, capture_output=True).stdout.strip()[:1]
+            assert run('freeze', '0').returncode == 0
+            for _ in range(30):
+                if state_of(child0[0]) == 'T':
+                    break
+                time.sleep(0.1)
+            assert state_of(child0[0]) == 'T', 'numeric session 0 was not frozen'
+            assert state_of(child1[0]) == 'S', 'numeric session 1 was frozen instead of 0'
+            assert run('thaw', '0').returncode == 0
+            tm('kill-session', '-t', '=0')
+            tm('kill-session', '-t', '=1')
+
+            # Non-empty pattern required for kill, freeze, and thaw
+            for act in ('kill', 'freeze', 'thaw'):
+                no_arg = run(act)
+                assert no_arg.returncode == 1, f'{act} without arguments must fail'
+                assert f'usage: tsessions {act} PATTERN' in no_arg.stderr, no_arg.stderr
+
+            # Colon target kills window without killing session
+            tm('new-window', '-t', 'busy', '-n', 'subwin')
+            time.sleep(0.3)
+            assert 'subwin' in tm('list-windows', '-t', 'busy', '-F', '#{window_name}').stdout
+            kill_win = run('kill', 'busy:subwin')
+            assert kill_win.returncode == 0, kill_win.stderr
+            assert 'subwin' not in tm('list-windows', '-t', 'busy', '-F', '#{window_name}').stdout
+
+            # Killing removes exactly the named session.
+            tm('new-session', '-d', '-s', 'keepme')
+            time.sleep(0.3)
+            killed = run('kill', 'busy')
+            assert killed.returncode == 0, killed.stderr
+            remaining = tm('list-sessions', '-F', '#{session_name}').stdout.split()
+            assert 'busy' not in remaining, remaining
+            assert 'keepme' in remaining, remaining
         finally:
             tm('kill-server', check=False)
+            if shutil.which('systemctl'):
+                sp.run(['systemctl', '--user', 'stop', scope + '.scope'],
+                       capture_output=True)
     print('tsessions checks passed')
     return 0
 

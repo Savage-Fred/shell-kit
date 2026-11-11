@@ -199,25 +199,39 @@ configs deps            # source tree for the current shell
 configs open ~/.bashrc  # open with your editor
 
 tl                      # sessions with windows, idle time, command, path
-tl build                # search name, running command or working directory
+tl studio               # search name, running command or working directory
 tmenu                   # roomy session picker with window preview
 tn project              # new session; switches safely inside tmux
 ta project              # attach or switch; name or unambiguous pattern
 ta                      # reattach the most recent session
 ta project:2            # exact session, that window
 td                      # detach without stopping work
+tk project              # kill a session; tk project:2 kills one window
+tfreeze project         # suspend the work running in its panes
+tthaw project           # resume it
 ```
+
+`tn` starts the tmux server inside its own systemd scope
+(`shell-kit-tmux.scope`), so closing the terminal — or systemd-oomd reclaiming
+it under memory pressure — no longer takes every session with it. Only the
+server is wrapped, since it forks every window and pane, and they inherit the
+cgroup. `SHELL_KIT_TMUX_SCOPE=off` opts out; without systemd this is a plain
+`tmux` call.
+
+`tfreeze` releases CPU but not memory: suspended processes keep their pages, so
+kill a session to reclaim RAM. It signals the pane's descendants rather than
+its process group, because job control gives each job a group of its own.
 
 `tl` and `ta` share one implementation, `tsessions`, so the same search is
 available when reconnecting from another machine:
 
 ```sh
 # Interactive login, then search and attach as usual:
-ta build
+ta studio
 
 # One-shot from another machine. Startup files skip non-interactive shells,
 # so the runtime directory is not on PATH; name the command in full:
-ssh HOST -t '$HOME/.local/share/shell-kit-runtime/bin/tsessions attach build'
+ssh HOST -t '$HOME/.local/share/shell-kit-runtime/bin/tsessions attach studio'
 ssh HOST '$HOME/.local/share/shell-kit-runtime/bin/tsessions list'
 ```
 
@@ -226,9 +240,8 @@ for the remote shell to expand.
 
 A pattern picks an exact session name first, then a name prefix, then any
 session whose name, running command or pane directory contains it. The last is
-what identifies a session when tmux has auto-named them `0`, `1`, `2`. An
-ambiguous pattern lists the candidates and changes nothing rather than
-attaching to a guess.
+what identifies a session when tmux has auto-named them `0`, `1`, `2`. An ambiguous pattern lists the
+candidates and changes nothing rather than attaching to a guess.
 
 `aliases` inspects the current shell, including sourced definitions, rather
 than guessing which dotfiles are active. It does not evaluate file contents.

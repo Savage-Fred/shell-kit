@@ -43,6 +43,9 @@ tn work          # create named tmux session
 ta work          # attach/switch by name or pattern (no argument: most recent)
 ta work:2        # exact session, that window
 td               # detach current tmux client
+tk work          # kill a session, or tk work:2 for one window
+tfreeze work     # suspend the work running in a session
+tthaw work       # resume it
 ```
 
 ## Alias or function?

@@ -5,10 +5,21 @@ import shutil
 import subprocess as sp
 import sys
 
-result = sp.run(['tmux', 'list-sessions', '-F', '#{session_id}\t#{session_name}\t#{session_windows} windows\t#{?session_attached,ATTACHED,detached}'], text=True, capture_output=True)
+result = sp.run(['tmux', '-u', 'list-sessions', '-F', '#{session_id}\t#{session_name}\t#{session_windows} windows\t#{?session_attached,ATTACHED,detached}'], text=True, capture_output=True)
 if result.returncode:
     print('No sessions yet. Create one with: tn NAME')
     sys.exit(0)
+
+
+def attach(target):
+    verb = 'switch-client' if os.environ.get('TMUX') else 'attach-session'
+    # Route through tsessions when present so the server keeps its own systemd
+    # scope and outlives the terminal it was started from.
+    if not os.environ.get('TMUX') and shutil.which('tsessions'):
+        os.execvp('tsessions', ['tsessions', 'run', verb, '-t', target])
+    os.execvp('tmux', ['tmux', verb, '-t', target])
+
+
 chosen = None
 if shutil.which('fzf') and sys.stdin.isatty() and sys.stdout.isatty():
     try:
@@ -19,8 +30,7 @@ if shutil.which('fzf') and sys.stdin.isatty() and sys.stdout.isatty():
 
 if chosen is not None:
     if chosen.returncode == 0:
-        target = chosen.stdout.split('\t')[0]
-        os.execvp('tmux', ['tmux', 'switch-client' if os.environ.get('TMUX') else 'attach-session', '-t', target])
+        attach(chosen.stdout.split('\t')[0])
     sys.exit(0)
 
 # Graceful fallback when fzf is absent or unusable:
@@ -55,8 +65,7 @@ if not choice or choice.lower() in ('q', 'quit', 'exit', 'c', 'cancel'):
     sys.exit(0)
 
 if choice.isdigit() and 1 <= int(choice) <= len(parsed):
-    target = parsed[int(choice) - 1][0]
-    os.execvp('tmux', ['tmux', 'switch-client' if os.environ.get('TMUX') else 'attach-session', '-t', target])
+    attach(parsed[int(choice) - 1][0])
 else:
     print('Invalid selection.')
     sys.exit(0)
