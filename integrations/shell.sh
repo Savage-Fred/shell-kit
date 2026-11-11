@@ -76,13 +76,22 @@ if ! type tn >/dev/null 2>&1; then
     }
 fi
 if ! type tk >/dev/null 2>&1; then
-    function tk { command tsessions kill "${1:?usage: tk PATTERN | SESSION:WINDOW}"; }
+    function tk {
+        if command -v tsessions >/dev/null 2>&1; then command tsessions kill "${1:?usage: tk PATTERN | SESSION:WINDOW}"
+        else printf 'tk: needs tsessions; re-run shell-kit install.sh\n' >&2; return 1; fi
+    }
 fi
 if ! type tfreeze >/dev/null 2>&1; then
-    function tfreeze { command tsessions freeze "${1:?usage: tfreeze PATTERN}"; }
+    function tfreeze {
+        if command -v tsessions >/dev/null 2>&1; then command tsessions freeze "${1:?usage: tfreeze PATTERN}"
+        else printf 'tfreeze: needs tsessions; re-run shell-kit install.sh\n' >&2; return 1; fi
+    }
 fi
 if ! type tthaw >/dev/null 2>&1; then
-    function tthaw { command tsessions thaw "${1:?usage: tthaw PATTERN}"; }
+    function tthaw {
+        if command -v tsessions >/dev/null 2>&1; then command tsessions thaw "${1:?usage: tthaw PATTERN}"
+        else printf 'tthaw: needs tsessions; re-run shell-kit install.sh\n' >&2; return 1; fi
+    }
 fi
 if ! type tl >/dev/null 2>&1; then
     function tl {

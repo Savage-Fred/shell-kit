@@ -36,6 +36,7 @@ tmenu          # roomy session chooser
 tn research    # create named session
 ta research    # attach / switch by name or pattern
 ta             # reattach the most recent session
+ta research:2  # exact session, that window
 td             # detach
 tk work        # kill a session; tk work:2 kills one window
 tfreeze work   # suspend the work running in it
@@ -89,7 +90,7 @@ ssh HOST "$sk list"               # just look, no terminal needed
 
 `-t` is required to attach: tmux needs a terminal. Landing directly in a session
 means no prefix key is needed to arrive, which matters on a phone keyboard.
-Closing the client leaves the session running; only `td` or `Prefix d` detaches.
+Closing the client detaches it; the session keeps running.
 
 ## Small improvements
 

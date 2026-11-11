@@ -204,6 +204,7 @@ tmenu                   # roomy session picker with window preview
 tn project              # new session; switches safely inside tmux
 ta project              # attach or switch; name or unambiguous pattern
 ta                      # reattach the most recent session
+ta project:2            # exact session, that window
 td                      # detach without stopping work
 tk project              # kill a session; tk project:2 kills one window
 tfreeze project         # suspend the work running in its panes
@@ -237,9 +238,9 @@ ssh HOST '$HOME/.local/share/shell-kit-runtime/bin/tsessions list'
 `-t` is required to attach: tmux needs a terminal. Single quotes keep `$HOME`
 for the remote shell to expand.
 
-A pattern matches the session name first, then the command running in its
-active pane, then that pane's directory, which is what identifies a session
-when tmux has auto-named them `0`, `1`, `2`. An ambiguous pattern lists the
+A pattern picks an exact session name first, then a name prefix, then any
+session whose name, running command or pane directory contains it. The last is
+what identifies a session when tmux has auto-named them `0`, `1`, `2`. An ambiguous pattern lists the
 candidates and changes nothing rather than attaching to a guess.
 
 `aliases` inspects the current shell, including sourced definitions, rather

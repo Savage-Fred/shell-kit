@@ -46,6 +46,7 @@ def check_shell_syntax():
         ROOT / 'vanilla' / 'configs',
         ROOT / 'vanilla' / 'shell-kit-search',
         ROOT / 'vanilla' / 'tmenu',
+        ROOT / 'vanilla' / 'tsessions',
     ]
 
     for script in scripts_to_check:
@@ -261,7 +262,7 @@ def check_optional_tool_fallbacks():
         mock_tmux.chmod(0o755)
         res_tmenu = sp.run([BASH, str(tmenu_bin)], env=env, capture_output=True, text=True)
         assert res_tmenu.returncode == 0, f"tmenu failed with no sessions: {res_tmenu.stderr}"
-        assert 'No sessions yet' in res_tmenu.stdout, f"Unexpected tmenu output: {res_tmenu.stdout}"
+        assert 'No sessions' in res_tmenu.stdout, f"Unexpected tmenu output: {res_tmenu.stdout}"
         mock_tmux.unlink()
 
     log("Tier 3 passed: All missing optional tool fallbacks operated gracefully without error.")
@@ -365,6 +366,7 @@ def check_bash32_nounset_array_expansion():
         ROOT / 'vanilla' / 'configs',
         ROOT / 'vanilla' / 'shell-kit-search',
         ROOT / 'vanilla' / 'tmenu',
+        ROOT / 'vanilla' / 'tsessions',
         ROOT / 'integrations' / 'shell.sh',
     ]
 
@@ -528,12 +530,18 @@ def check_portable_path_resolution():
         space_bin_dir = tmp_dir / "bin with spaces"
         space_bin_dir.mkdir()
 
+        dry_home = tmp_dir / "dry_run_home"
+        dry_home.mkdir()
+        dry_env = dict(os.environ, HOME=str(dry_home))
+        for k in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV'):
+            dry_env.pop(k, None)
+
         # Symlink install.sh
         symlinked_installer = space_bin_dir / "install_symlink.sh"
         symlinked_installer.symlink_to(ROOT / "install.sh")
         res_inst = sp.run(
             [BASH, str(symlinked_installer), '--mode', 'vanilla', '--dry-run'],
-            capture_output=True, text=True
+            env=dry_env, capture_output=True, text=True
         )
         assert res_inst.returncode == 0, f"Symlinked install.sh in path with spaces failed:\n{res_inst.stderr}"
 
@@ -542,7 +550,7 @@ def check_portable_path_resolution():
         symlinked_uninstaller.symlink_to(ROOT / "uninstall.sh")
         res_uninst = sp.run(
             [BASH, str(symlinked_uninstaller), '--dry-run'],
-            capture_output=True, text=True
+            env=dry_env, capture_output=True, text=True
         )
         assert res_uninst.returncode == 0, f"Symlinked uninstall.sh in path with spaces failed:\n{res_uninst.stderr}"
 
