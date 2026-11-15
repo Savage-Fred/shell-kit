@@ -10,6 +10,8 @@ case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
 # Existing definitions win: a name already taken by an alias, function or
 # command is skipped. The `function NAME` form is deliberate; `NAME() {` would
 # be rewritten by a same-named alias while the definition is parsed.
+# External tools are called through `command` so the user's aliases for them
+# are not frozen into these function bodies.
 
 # fif: Find in files with graceful degradation.
 # When rg, fzf, or bat/batcat is missing, cleanly falls back to grep -rn and standard pager.
@@ -40,23 +42,23 @@ function fif {
         fi
 
         if command -v rg >/dev/null 2>&1; then
-            rg --color=always --line-number --no-heading --smart-case -- "${query}" "${target}" 2>/dev/null | \
-                fzf --ansi \
+            command rg --color=always --line-number --no-heading --smart-case -- "${query}" "${target}" 2>/dev/null | \
+                command fzf --ansi \
                     --delimiter : \
                     --preview "$preview_cmd" \
                     --preview-window 'up,60%,border-bottom,+{2}+3/3,~3' || true
         else
-            grep -r -n -H -- "${query}" "${target}" 2>/dev/null | \
-                fzf --delimiter : \
+            command grep -r -n -H -- "${query}" "${target}" 2>/dev/null | \
+                command fzf --delimiter : \
                     --preview "$preview_cmd" \
                     --preview-window 'up,60%,border-bottom,+{2}+3/3,~3' || true
         fi
     else
         # Non-interactive or fzf missing: fall back to rg or grep -rn and standard pager
         if command -v rg >/dev/null 2>&1; then
-            rg --line-number --color=auto -- "${query}" "${target}" 2>/dev/null | $pager || true
+            command rg --line-number --color=auto -- "${query}" "${target}" 2>/dev/null | $pager || true
         else
-            grep -r -n -H -- "${query}" "${target}" 2>/dev/null | $pager || true
+            command grep -r -n -H -- "${query}" "${target}" 2>/dev/null | $pager || true
         fi
     fi
 }
@@ -72,7 +74,7 @@ function sfind {
     if [ -n "$fd_cmd" ]; then
         "$fd_cmd" --hidden --exclude .git -i "$query" "$target"
     else
-        find "$target" -name .git -prune -o -iname "*$query*" -print
+        command find "$target" -name .git -prune -o -iname "*$query*" -print
     fi
 }
 fi
@@ -87,7 +89,7 @@ function dfind {
     if [ -n "$fd_cmd" ]; then
         "$fd_cmd" --type d --hidden --exclude .git -i "$query" "$target"
     else
-        find "$target" -name .git -prune -o -type d -iname "*$query*" -print
+        command find "$target" -name .git -prune -o -type d -iname "*$query*" -print
     fi
 }
 fi
@@ -102,7 +104,7 @@ function pfind {
     if [ -n "$fd_cmd" ]; then
         "$fd_cmd" --type f --hidden --exclude .git -i "$query" "$target"
     else
-        find "$target" -name .git -prune -o -type f -iname "*$query*" -print
+        command find "$target" -name .git -prune -o -type f -iname "*$query*" -print
     fi
 }
 fi

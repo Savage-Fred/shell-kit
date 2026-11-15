@@ -621,7 +621,7 @@ def check_missing_optional_dependency_fallbacks():
         essential_tools = [
             'bash', 'sh', 'awk', 'cat', 'cmp', 'cp', 'date', 'dirname', 'ln',
             'mkdir', 'mktemp', 'mv', 'readlink', 'rm', 'stty', 'tail',
-            'chmod', 'grep', 'find', 'sort', 'tr', 'sed', 'head', 'python3'
+            'chmod', 'grep', 'find', 'sort', 'tr', 'sed', 'head', 'python3', 'ls'
         ]
         for tool in essential_tools:
             tool_path = shutil.which(tool)
@@ -633,7 +633,7 @@ def check_missing_optional_dependency_fallbacks():
             assert not (restricted_bin / missing_tool).exists(), f"{missing_tool} should not exist in restricted_bin"
 
         env = dict(os.environ, HOME=str(home), PATH=str(restricted_bin))
-        for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV'):
+        for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV', 'STARSHIP_SHELL'):
             env.pop(key, None)
 
         test_files_dir = tmp_dir / 'test_files'
@@ -823,6 +823,7 @@ echo "MOCK_TMUX_ACTION: $@"
         # --------------------------------------------------------------------
         # 8. Existing definitions win: prompt, aliases and functions the user
         #    already has survive sourcing the helpers; free names are filled.
+        #    Runs in Bash and, when installed, Zsh.
         # --------------------------------------------------------------------
         sources = f'''
         . "{ROOT}/helpers/functions.sh"
@@ -833,6 +834,7 @@ echo "MOCK_TMUX_ACTION: $@"
         PS1='CUSTOM> '
         alias ll='ls -lh'
         ls() { echo own-ls; }
+        l() { echo own-l; }
         alias fif='echo own-fif'
         sfind() { echo own-sfind; }
         ''' + sources + '''
@@ -840,32 +842,50 @@ echo "MOCK_TMUX_ACTION: $@"
         alias ll
         alias ls 2>/dev/null || echo ls-alias-absent
         ls
+        alias l 2>/dev/null || echo l-alias-absent
         alias fif
         typeset -f fif >/dev/null || echo fif-function-absent
         sfind anything
-        echo "pfind=$(type -t pfind) la=$(alias la)"
+        typeset -f pfind >/dev/null && echo pfind-defined
+        alias la
         [ -z "$(typeset -f _sk_alias _sk_setup_prompt setup_prompt 2>/dev/null)" ] && echo leaked=0
         '''
-        res_keep = sp.run([BASH, '-i', '-c', keep_script], env=env, capture_output=True, text=True)
-        assert res_keep.returncode == 0, f"helpers failed over existing definitions: {res_keep.stderr}"
-        for expected in ('PS1=[CUSTOM> ]', "alias ll='ls -lh'", 'ls-alias-absent', 'own-ls',
-                         "alias fif='echo own-fif'", 'fif-function-absent', 'own-sfind',
-                         "pfind=function la=alias la='ls -a'", 'leaked=0'):
-            assert expected in res_keep.stdout, f"existing definition lost ({expected!r}): {res_keep.stdout}{res_keep.stderr}"
+        (home / '.zshrc').write_text('')
+        shells = [('bash', [BASH, '-i', '-c'], '\\s-\\v\\$ ', '[\\u@\\h \\W]\\$ ')]
+        if shutil.which('zsh'):
+            shells.append(('zsh', [shutil.which('zsh'), '-i', '-c'], '%m%# ', '%n@%m %1~ %# '))
+        for shell, launch, builtin_prompt, fallback_prompt in shells:
+            shell_env = dict(env, ZDOTDIR=str(home))
+            shell_env.pop('PS1', None)
+            res_keep = sp.run(launch + [keep_script], env=shell_env, capture_output=True, text=True)
+            assert res_keep.returncode == 0, f"{shell}: helpers failed over existing definitions: {res_keep.stderr}"
+            for expected in ('PS1=[CUSTOM> ]', "ll='ls -lh'", 'ls-alias-absent', 'own-ls', 'l-alias-absent',
+                             "fif='echo own-fif'", 'fif-function-absent', 'own-sfind', 'pfind-defined',
+                             "la='ls -a'", 'leaked=0'):
+                assert expected in res_keep.stdout, \
+                    f"{shell}: existing definition lost ({expected!r}): {res_keep.stdout}{res_keep.stderr}"
 
-        # The fallback prompt still replaces the shell's built-in default.
-        stock_script = "PS1='\\s-\\v\\$ '\n" + sources + 'echo "PS1=[$PS1]"\n'
-        res_stock = sp.run([BASH, '-i', '-c', stock_script], env=env, capture_output=True, text=True)
-        assert res_stock.returncode == 0 and 'PS1=[[\\u@\\h \\W]\\$ ]' in res_stock.stdout, \
-            f"fallback prompt did not replace the built-in default: {res_stock.stdout}{res_stock.stderr}"
+            # The fallback still replaces the shell's built-in default, without exporting it.
+            stock_script = f"PS1='{builtin_prompt}'\n" + sources + '''echo "PS1=[$PS1]"
+            python3 -c "import os; print('CHILD_PS1=[' + os.environ.get('PS1', 'unset') + ']')"
+            '''
+            res_stock = sp.run(launch + [stock_script], env=shell_env, capture_output=True, text=True)
+            assert res_stock.returncode == 0 and f'PS1=[{fallback_prompt}]' in res_stock.stdout, \
+                f"{shell}: fallback prompt did not replace the built-in default: {res_stock.stdout}{res_stock.stderr}"
+            assert 'CHILD_PS1=[unset]' in res_stock.stdout, f"{shell}: the fallback prompt was exported: {res_stock.stdout}"
 
-        # A starship the user already initialised is not initialised again.
+        # Starship is started once per shell: skipped where its hook already
+        # exists, but not merely because a parent shell exported STARSHIP_SHELL.
         mock_starship.write_text('#!/bin/sh\nif [ "$1" = "init" ]; then echo "export STARSHIP_LOADED=1"; exit 0; fi\n')
         mock_starship.chmod(0o755)
-        res_twice = sp.run([BASH, '-i', '-c', mock_prompt_script],
-                           env=dict(env, STARSHIP_SHELL='bash'), capture_output=True, text=True)
+        res_twice = sp.run([BASH, '-i', '-c', 'starship_precmd() { :; }\n' + mock_prompt_script],
+                           env=env, capture_output=True, text=True)
         assert res_twice.returncode == 0 and 'STARSHIP_STATUS=0' in res_twice.stdout, \
             f"starship was initialised a second time: {res_twice.stdout}{res_twice.stderr}"
+        res_child = sp.run([BASH, '-i', '-c', mock_prompt_script],
+                           env=dict(env, STARSHIP_SHELL='bash'), capture_output=True, text=True)
+        assert res_child.returncode == 0 and 'STARSHIP_STATUS=1' in res_child.stdout, \
+            f"a child shell inheriting STARSHIP_SHELL got no starship: {res_child.stdout}{res_child.stderr}"
         mock_starship.unlink()
 
     log("Tier 8 passed: Graceful degradation for optional dependencies (rg, fd, fzf, bat, eza, starship) verified.")

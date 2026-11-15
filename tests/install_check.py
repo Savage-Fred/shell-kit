@@ -211,8 +211,18 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-shared-rc-') as folder:
     print('PASS: Bash and Zsh can share the same physical startup file')
 
 with tempfile.TemporaryDirectory(prefix='shell-kit-keeps-mine-') as folder:
-    home = Path(folder)
-    env = dict(os.environ, HOME=folder, ZDOTDIR=folder)
+    home = Path(folder) / 'home'
+    home.mkdir()
+    # A controlled PATH: no starship or eza from the developer's machine.
+    tools = Path(folder) / 'bin'
+    tools.mkdir()
+    for name in ('bash', 'zsh', 'ls', 'awk', 'cat', 'cmp', 'cp', 'date', 'dirname', 'ln',
+                 'mkdir', 'mktemp', 'mv', 'readlink', 'rm', 'stty', 'tail',
+                 'chmod', 'grep', 'find', 'sort', 'tr'):
+        found = BASH if name == 'bash' else shutil.which(name)
+        if found:
+            (tools / name).symlink_to(found)
+    env = dict(os.environ, HOME=str(home), ZDOTDIR=str(home), PATH=str(tools))
     for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV', 'SHELL_KIT_COMPONENTS', 'STARSHIP_SHELL'):
         env.pop(key, None)
     custom = ("PS1='MINE> '\nalias ll='echo my-ll'\nalias la='echo my-la'\n"
@@ -221,12 +231,14 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-keeps-mine-') as folder:
     (home / '.zshrc').write_text(custom)
     sp.run([BASH, str(ROOT / 'install.sh'), '--components', 'helpers',
             '--mode', 'vanilla', '--yes'], env=env, check=True, capture_output=True)
-    probe = 'echo "PS1=[$PS1]"; alias ll la; ls; sfind x; type pfind >/dev/null && echo pfind-added'
+    probe = ('echo "PS1=[$PS1]"; alias ll la l; alias ls 2>/dev/null || echo ls-alias-absent; '
+             'ls; sfind x')
     for name in ('bash', 'zsh'):
-        if shutil.which(name):
-            result = sp.run([BASH if name == 'bash' else name, '-ic', probe],
-                            env=env, text=True, capture_output=True)
-            for expected in ('PS1=[MINE> ]', 'echo my-ll', 'echo my-la', 'my-ls', 'my-sfind', 'pfind-added'):
+        if (tools / name).exists():
+            result = sp.run([str(tools / name), '-ic', probe], env=env, text=True, capture_output=True)
+            # Kept: prompt, ll, la, the ls and sfind functions. Filled: the free name l.
+            for expected in ('PS1=[MINE> ]', "ll='echo my-ll'", "la='echo my-la'", 'ls-alias-absent',
+                             'my-ls', 'my-sfind', "l='ls -l'"):
                 assert expected in result.stdout, (name, expected, result.stdout, result.stderr)
     print('PASS: an installed helpers component keeps the existing prompt, aliases and functions')
 
