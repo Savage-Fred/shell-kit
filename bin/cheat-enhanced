@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -195,14 +196,20 @@ def main(args):
             # but help sidebars remain. A dedicated help window is all sheets by
             # design and stays.
             # ponytail: recognised by its help:TOPIC name, so one renamed by
-            # hand is treated as orphaned; mark it with a pane option if that bites.
-            listing = tm('list-panes', '-a', '-F', '#{window_id}|#{pane_id}|#{@shell_kit}|#{window_name}', check=False)
+            # hand is treated as orphaned; mark it with a window option if that bites.
+            listing = tm('list-panes', '-a', '-F', '#{window_id}|#{pane_id}|#{m:help:*,#{window_name}}|#{@shell_kit}', check=False)
             windows = {}
             for line in listing.splitlines():
-                window, pane, sheet, name = line.split('|', 3)
-                windows.setdefault((window, name), []).append((pane, sheet))
-            for (window, name), members in windows.items():
-                if not name.startswith('help:') and all(sheet for _, sheet in members):
+                row = re.fullmatch(r'(@\d+)\|(%\d+)\|([01])\|(.*)', line)
+                if row:  # Anything else is not a row tmux wrote for one pane.
+                    windows.setdefault((row[1], row[3]), []).append((row[2], row[4]))
+            for (window, dedicated), members in windows.items():
+                if dedicated == '1' or not all(sheet for _, sheet in members):
+                    continue
+                # #{@shell_kit} also reports a value inherited from the window,
+                # session or server. Only a pane's own tag makes it a sheet, so a
+                # stray wider setting can never mark working panes for closing.
+                if all(tm('show-options', '-pqv', '-t', pane, '@shell_kit', check=False) for pane, _ in members):
                     for pane, _ in members:
                         tm('kill-pane', '-t', pane, check=False)
         return

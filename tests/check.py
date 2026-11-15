@@ -187,7 +187,11 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
             tm('set-option', '-p', '-t', made, '@shell_kit', sheet)
             return made
         work = tm('display-message', '-p', '#{window_id}')
+        # A real sidebar beside the working pane: it must stay while that pane lives.
+        beside = tm('split-window', '-d', '-t', work, '-P', '-F', '#{pane_id}', 'sleep 300')
+        tm('set-option', '-p', '-t', beside, '@shell_kit', 'vim')
         working_panes = tm('list-panes', '-t', work, '-F', '#{pane_id}')
+        assert len(working_panes.splitlines()) >= 2
         dedicated = helper('-d', name='help:tmux')
         orphan = helper('-d', sheet='grep')
         cheat('cleanup', dedicated)
@@ -205,8 +209,18 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
             time.sleep(0.1)
         assert orphan not in windows(), 'pane-exited hook did not clean an orphaned sidebar'
         assert dedicated in windows(), 'an unrelated pane exit closed the help window'
+        assert tm('list-panes', '-t', work, '-F', '#{pane_id}') == working_panes, 'the hook touched a working window'
+        # A tag inherited from a wider scope is not a sheet: nothing may be closed.
+        plain = tm('new-window', '-d', '-P', '-F', '#{window_id}', 'sleep 300')
+        tm('set-option', '-g', '@shell_kit', 'stray')
+        cheat('cleanup', work)
+        tm('set-option', '-gu', '@shell_kit')
+        assert plain in windows() and dedicated in windows(), 'an inherited tag closed windows'
+        assert tm('list-panes', '-t', work, '-F', '#{pane_id}') == working_panes, 'an inherited tag closed panes'
         tm('select-window', '-t', work)
         tm('kill-window', '-t', dedicated)
+        tm('kill-window', '-t', plain)
+        tm('kill-pane', '-t', beside)
         assert windows() == [work]
         print('PASS: search, installer, shell syntax, tmux focus/stack/toggle/ownership/profile, hook cleanup')
     finally:
