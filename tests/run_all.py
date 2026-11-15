@@ -121,7 +121,7 @@ def main(patterns):
         print('RUN  %s' % name, flush=True)
         started = time.time()
         try:
-            # No suite may wait on the terminal this runner was started from.
+            # No suite may read from the stdin this runner was started with.
             done = sp.run(command, cwd=ROOT, text=True, capture_output=True,
                           stdin=sp.DEVNULL, timeout=TIMEOUT)
         except sp.TimeoutExpired:

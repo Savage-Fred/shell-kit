@@ -187,7 +187,7 @@ def main(args):
         if not args:
             raise RuntimeError('Missing window. Usage: cheat cleanup WINDOW')
         if not args[0]:
-            return  # A hook can fire after its pane, and so its window id, is gone.
+            return  # Stay quiet for a caller that quotes an empty expansion.
         with locked():
             try:
                 rows = panes(args[0])

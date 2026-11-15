@@ -126,7 +126,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         env['FZF_DEFAULT_OPTS'] = '--filter=shell-kit-no-match-should-cancel'
         call(str(ROOT / 'bin/tmenu'))
         env.pop('FZF_DEFAULT_OPTS')
-        assert len(rows()) == 1, 'session picker cancellation changed panes'
+        assert len(rows()) == 1, 'session picker with no answer on stdin changed panes'
         tm('set-environment', '-g', 'CHEAT_THEME', 'dark')
         env['CHEAT_THEME'] = 'light'
         cheat('tmux')
