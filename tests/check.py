@@ -88,7 +88,9 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
     env.pop('TMUX', None)
     env.pop('TMUX_PANE', None)
     def call(*cmd, input=None, check=True):
-        return sp.run(cmd, env=env, input=input, text=True, stdout=sp.PIPE, stderr=sp.PIPE, check=check)
+        # Never inherit the caller's stdin: tmenu's no-terminal fallback reads a choice from it.
+        return sp.run(cmd, env=env, input=input, stdin=None if input is not None else sp.DEVNULL,
+                      text=True, stdout=sp.PIPE, stderr=sp.PIPE, check=check)
     call('bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', 'enhanced', '--yes')
     before = (home / '.bashrc').read_text()
     call('bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', 'enhanced', '--yes')
@@ -124,7 +126,7 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         env['FZF_DEFAULT_OPTS'] = '--filter=shell-kit-no-match-should-cancel'
         call(str(ROOT / 'bin/tmenu'))
         env.pop('FZF_DEFAULT_OPTS')
-        assert len(rows()) == 1, 'session picker cancellation changed panes'
+        assert len(rows()) == 1, 'session picker with no answer on stdin changed panes'
         tm('set-environment', '-g', 'CHEAT_THEME', 'dark')
         env['CHEAT_THEME'] = 'light'
         cheat('tmux')
@@ -175,7 +177,52 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         assert tm('display-message', '-p', '-t', help_pane, '#{pane_width}') == '155'
         cheat('grep', help_pane)
         assert len(tm('list-windows').splitlines()) == 1, 'help toggle must restore work window'
-        print('PASS: search, installer, shell syntax, tmux focus/stack/toggle/ownership/profile')
+        # tmux names the *current* window to the pane-exited hook, not the one the
+        # pane left. A dedicated help window must survive that, and a sidebar
+        # orphaned in a background window must still be closed.
+        def windows():
+            return tm('list-windows', '-F', '#{window_id}').splitlines()
+        def helper(*flags, name=None, sheet='tmux'):
+            made = tm('new-window', *flags, '-P', '-F', '#{window_id}', *(['-n', name] if name else []), 'sleep 300')
+            tm('set-option', '-p', '-t', made, '@shell_kit', sheet)
+            return made
+        work = tm('display-message', '-p', '#{window_id}')
+        # A real sidebar beside the working pane: it must stay while that pane lives.
+        beside = tm('split-window', '-d', '-t', work, '-P', '-F', '#{pane_id}', 'sleep 300')
+        tm('set-option', '-p', '-t', beside, '@shell_kit', 'vim')
+        working_panes = tm('list-panes', '-t', work, '-F', '#{pane_id}')
+        assert len(working_panes.splitlines()) >= 2
+        dedicated = helper('-d', name='help:tmux')
+        orphan = helper('-d', sheet='grep')
+        cheat('cleanup', dedicated)
+        assert dedicated in windows(), 'cleanup closed a dedicated help window'
+        assert orphan not in windows(), 'cleanup left an orphaned help sidebar'
+        assert tm('list-panes', '-t', work, '-F', '#{pane_id}') == working_panes, 'cleanup touched a working window'
+        # The same through the real hook: the help window is current while the
+        # last pane of another window exits.
+        tm('select-window', '-t', dedicated)
+        orphan = helper('-d', sheet='grep')
+        tm('new-window', '-d', 'sleep 1')
+        for _ in range(100):
+            if orphan not in windows():
+                break
+            time.sleep(0.1)
+        assert orphan not in windows(), 'pane-exited hook did not clean an orphaned sidebar'
+        assert dedicated in windows(), 'an unrelated pane exit closed the help window'
+        assert tm('list-panes', '-t', work, '-F', '#{pane_id}') == working_panes, 'the hook touched a working window'
+        # A tag inherited from a wider scope is not a sheet: nothing may be closed.
+        plain = tm('new-window', '-d', '-P', '-F', '#{window_id}', 'sleep 300')
+        tm('set-option', '-g', '@shell_kit', 'stray')
+        cheat('cleanup', work)
+        tm('set-option', '-gu', '@shell_kit')
+        assert plain in windows() and dedicated in windows(), 'an inherited tag closed windows'
+        assert tm('list-panes', '-t', work, '-F', '#{pane_id}') == working_panes, 'an inherited tag closed panes'
+        tm('select-window', '-t', work)
+        tm('kill-window', '-t', dedicated)
+        tm('kill-window', '-t', plain)
+        tm('kill-pane', '-t', beside)
+        assert windows() == [work]
+        print('PASS: search, installer, shell syntax, tmux focus/stack/toggle/ownership/profile, hook cleanup')
     finally:
         sp.run(['tmux', '-S', sock, 'kill-server'], env=env, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
     env.pop('TMUX', None)

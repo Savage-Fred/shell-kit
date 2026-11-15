@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -184,18 +185,33 @@ def main(args):
                 raise
         return
     if action == 'cleanup':
-        if not args or not args[0]:
-            return
+        if not args:
+            raise RuntimeError('Missing window. Usage: cheat cleanup WINDOW')
+        if not args[0]:
+            return  # Stay quiet for a caller that quotes an empty expansion.
         with locked():
-            try:
-                rows = panes(args[0])
-            except (sp.CalledProcessError, Exception):
-                return  # The last pane may have already removed this window.
-            if rows and all(r[1] for r in rows):
-                try:
-                    close(args[0])
-                except (sp.CalledProcessError, Exception):
-                    pass
+            # The argument cannot be trusted to name the window the pane left:
+            # tmux expands the hook's #{window_id} against the current window.
+            # So look at every window and close help panes only where nothing
+            # but help sidebars remain. A dedicated help window is all sheets by
+            # design and stays.
+            # ponytail: recognised by its help:TOPIC name, so one renamed by
+            # hand is treated as orphaned; mark it with a window option if that bites.
+            listing = tm('list-panes', '-a', '-F', '#{window_id}|#{pane_id}|#{m:help:*,#{window_name}}|#{@shell_kit}', check=False)
+            windows = {}
+            for line in listing.splitlines():
+                row = re.fullmatch(r'(@\d+)\|(%\d+)\|([01])\|(.*)', line)
+                if row:  # Anything else is not a row tmux wrote for one pane.
+                    windows.setdefault((row[1], row[3]), []).append((row[2], row[4]))
+            for (window, dedicated), members in windows.items():
+                if dedicated == '1' or not all(sheet for _, sheet in members):
+                    continue
+                # #{@shell_kit} also reports a value inherited from the window,
+                # session or server. Only a pane's own tag makes it a sheet, so a
+                # stray wider setting can never mark working panes for closing.
+                if all(tm('show-options', '-pqv', '-t', pane, '@shell_kit', check=False) for pane, _ in members):
+                    for pane, _ in members:
+                        tm('kill-pane', '-t', pane, check=False)
         return
     if action == 'close-owner':
         if os.environ.get('TMUX'):
