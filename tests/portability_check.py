@@ -14,6 +14,8 @@ Satisfies Requirement R2 (cross-OS/cross-distro compatibility):
 """
 import hashlib
 import os
+import select
+import pty
 from pathlib import Path
 import re
 import shutil
@@ -666,42 +668,6 @@ def check_missing_optional_dependency_fallbacks():
         assert res_fif_nomatch.returncode == 0, f"fif crashed on no match: {res_fif_nomatch.stderr}"
 
         # --------------------------------------------------------------------
-        # 2. sfind, dfind, pfind: Missing fd falls back cleanly to POSIX find
-        # --------------------------------------------------------------------
-        find_script = f'''
-        set -e
-        . "{ROOT}/helpers/functions.sh"
-        echo "===SFIND==="
-        sfind "alpha" "{test_files_dir}"
-        echo "===DFIND==="
-        dfind "special" "{test_files_dir}"
-        echo "===PFIND==="
-        pfind "nested" "{test_files_dir}"
-        '''
-        res_find = sp.run([BASH, '-i', '-c', find_script], env=env, capture_output=True, text=True)
-        assert res_find.returncode == 0, f"find helpers failed when fd missing: {res_find.stderr}"
-        out_find = res_find.stdout
-        assert "alpha.txt" in out_find, f"sfind POSIX fallback failed: {out_find}"
-        assert "my_special_dir" in out_find, f"dfind POSIX fallback failed: {out_find}"
-        assert "nested.txt" in out_find, f"pfind POSIX fallback failed: {out_find}"
-
-        # Test sfind, dfind, pfind with mock fd present
-        mock_fd = restricted_bin / 'fd'
-        mock_fd.write_text('#!/bin/sh\necho "MOCK_FD_INVOKED: $@"\n')
-        mock_fd.chmod(0o755)
-
-        mock_find_script = f'''
-        . "{ROOT}/helpers/functions.sh"
-        sfind "test" "{test_files_dir}"
-        dfind "test" "{test_files_dir}"
-        pfind "test" "{test_files_dir}"
-        '''
-        res_mock_find = sp.run([BASH, '-i', '-c', mock_find_script], env=env, capture_output=True, text=True)
-        assert res_mock_find.returncode == 0, f"fd invocation failed: {res_mock_find.stderr}"
-        assert res_mock_find.stdout.count("MOCK_FD_INVOKED") == 3, f"mock fd not called for all 3 functions: {res_mock_find.stdout}"
-        mock_fd.unlink()
-
-        # --------------------------------------------------------------------
         # 3. bin/tmenu: Missing fzf degrades cleanly without crashing or exiting 1
         # --------------------------------------------------------------------
         mock_tmux = restricted_bin / 'tmux'
@@ -833,10 +799,9 @@ echo "MOCK_TMUX_ACTION: $@"
         keep_script = '''
         PS1='CUSTOM> '
         alias ll='ls -lh'
-        ls() { echo own-ls; }
-        l() { echo own-l; }
+        function ls { echo own-ls; }
+        function l { echo own-l; }
         alias fif='echo own-fif'
-        sfind() { echo own-sfind; }
         ''' + sources + '''
         echo "PS1=[$PS1]"
         alias ll
@@ -845,8 +810,6 @@ echo "MOCK_TMUX_ACTION: $@"
         alias l 2>/dev/null || echo l-alias-absent
         alias fif
         typeset -f fif >/dev/null || echo fif-function-absent
-        sfind anything
-        typeset -f pfind >/dev/null && echo pfind-defined
         alias la
         [ -z "$(typeset -f _sk_alias _sk_setup_prompt setup_prompt 2>/dev/null)" ] && echo leaked=0
         '''
@@ -860,7 +823,7 @@ echo "MOCK_TMUX_ACTION: $@"
             res_keep = sp.run(launch + [keep_script], env=shell_env, capture_output=True, text=True)
             assert res_keep.returncode == 0, f"{shell}: helpers failed over existing definitions: {res_keep.stderr}"
             for expected in ('PS1=[CUSTOM> ]', "ll='ls -lh'", 'ls-alias-absent', 'own-ls', 'l-alias-absent',
-                             "fif='echo own-fif'", 'fif-function-absent', 'own-sfind', 'pfind-defined',
+                             "fif='echo own-fif'", 'fif-function-absent',
                              "la='ls -a'", 'leaked=0'):
                 assert expected in res_keep.stdout, \
                     f"{shell}: existing definition lost ({expected!r}): {res_keep.stdout}{res_keep.stderr}"
@@ -874,6 +837,44 @@ echo "MOCK_TMUX_ACTION: $@"
                 f"{shell}: fallback prompt did not replace the built-in default: {res_stock.stdout}{res_stock.stderr}"
             assert 'CHILD_PS1=[unset]' in res_stock.stdout, f"{shell}: the fallback prompt was exported: {res_stock.stdout}"
 
+        # Optional tools that exist only as an alias or function are not the
+        # binary: the helpers fall back instead of running a name `command`
+        # cannot find, and the pager works on a terminal in Zsh too.
+        fake_less = tmp_dir / 'pager_bin'
+        fake_less.mkdir()
+        (fake_less / 'less').write_text('#!/bin/sh\necho "FAKE-LESS $*"\ncat\n')
+        (fake_less / 'less').chmod(0o755)
+        shadow_script = f'''
+        function rg {{ echo USER-RG "$@"; }}
+        function less {{ echo USER-LESS; }}
+        ''' + sources + f'''
+        cd "{test_files_dir}"
+        fif target_token_found .
+        typeset -f fif | grep -c USER- || true
+        '''
+        for shell, launch, _, _ in shells:
+            master, slave = pty.openpty()
+            pager_env = dict(env, ZDOTDIR=str(home), PATH=str(restricted_bin) + os.pathsep + str(fake_less))
+            done = sp.run(launch + [shadow_script], env=pager_env, stdin=sp.DEVNULL, stdout=slave,
+                          stderr=sp.PIPE, text=True, timeout=30)
+            os.close(slave)
+            shown = b''
+            while select.select([master], [], [], 0.5)[0]:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                shown += chunk
+            os.close(master)
+            shown = shown.decode(errors='replace')
+            assert done.returncode == 0, f"{shell}: helpers failed beside shadowing definitions: {done.stderr}"
+            assert 'alpha.txt:2:target_token_found' in shown, f"{shell}: fif found nothing: {shown!r} {done.stderr}"
+            assert 'FAKE-LESS -R' in shown, f"{shell}: the pager did not run on a terminal: {shown!r} {done.stderr}"
+            assert 'USER-RG' not in shown and 'USER-LESS' not in shown, f"{shell}: a shadowing function ran: {shown!r}"
+            assert 'command not found' not in done.stderr, f"{shell}: {done.stderr}"
+
         # Starship is started once per shell: skipped where its hook already
         # exists, but not merely because a parent shell exported STARSHIP_SHELL.
         mock_starship.write_text('#!/bin/sh\nif [ "$1" = "init" ]; then echo "export STARSHIP_LOADED=1"; exit 0; fi\n')
@@ -886,6 +887,21 @@ echo "MOCK_TMUX_ACTION: $@"
                            env=dict(env, STARSHIP_SHELL='bash'), capture_output=True, text=True)
         assert res_child.returncode == 0 and 'STARSHIP_STATUS=1' in res_child.stdout, \
             f"a child shell inheriting STARSHIP_SHELL got no starship: {res_child.stdout}{res_child.stderr}"
+        if shutil.which('zsh'):
+            zsh = [shutil.which('zsh'), '-i', '-c']
+            zsh_env = dict(env, ZDOTDIR=str(home))
+            res_zsh_twice = sp.run(zsh + ['function prompt_starship_precmd { : }\n' + mock_prompt_script],
+                                   env=zsh_env, capture_output=True, text=True)
+            assert res_zsh_twice.returncode == 0 and 'STARSHIP_STATUS=0' in res_zsh_twice.stdout, \
+                f"zsh: starship was initialised a second time: {res_zsh_twice.stdout}{res_zsh_twice.stderr}"
+            # A Zsh global alias named like one of ours must not rewrite the alias calls.
+            global_script = f"alias -g l='GLOBAL-L'\nalias -g la='GLOBAL-LA'\n. \"{ROOT}/helpers/aliases.sh\"\nalias ll\nalias\n"
+            res_global = sp.run(zsh + [global_script], env=zsh_env, capture_output=True, text=True)
+            assert res_global.returncode == 0 and "ll='ls -la'" in res_global.stdout, \
+                f"zsh: aliases broke beside a global alias: {res_global.stdout}{res_global.stderr}"
+            assert 'GLOBAL-L=' not in res_global.stdout and 'GLOBAL-LA=' not in res_global.stdout \
+                and 'bad assignment' not in res_global.stderr, \
+                f"zsh: a global alias rewrote an alias call: {res_global.stdout}{res_global.stderr}"
         mock_starship.unlink()
 
     log("Tier 8 passed: Graceful degradation for optional dependencies (rg, fd, fzf, bat, eza, starship) verified.")

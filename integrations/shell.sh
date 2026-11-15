@@ -50,18 +50,7 @@ if ! type pfind >/dev/null 2>&1; then
     function pfind { command shell-kit-search pfind "$@"; }
 fi
 if ! type fif >/dev/null 2>&1; then
-    function fif {
-        local query="${1:-}"
-        local target="${2:-.}"
-        [ -n "$query" ] || { printf 'Usage: fif PATTERN [DIR]\n' >&2; return 0; }
-        local pager="cat"
-        if [ -t 1 ] && command -v less >/dev/null 2>&1; then pager="less -R"; fi
-        if command -v rg >/dev/null 2>&1; then
-            command rg --line-number --color=auto -- "$query" "$target" 2>/dev/null | $pager || true
-        else
-            command grep -r -n -H -- "$query" "$target" 2>/dev/null | $pager || true
-        fi
-    }
+    function fif { command shell-kit-search fif "$@"; }
 fi
 ;; esac
 case "${SHELL_KIT_COMPONENTS- helpers references tmux }" in *' tmux '*)

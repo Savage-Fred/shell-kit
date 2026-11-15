@@ -203,10 +203,24 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-shared-rc-') as folder:
         (home / name).symlink_to(target.name)
     sp.run([BASH, str(ROOT / 'install.sh'), '--components', 'helpers',
             '--mode', 'vanilla', '--yes'], env=env, check=True, capture_output=True)
+    notes = home / 'notes'
+    (notes / 'needle-dir').mkdir(parents=True)
+    (notes / 'log.txt').write_text('before\nthe needle is here\nafter\n\nlater\n')
     for name in ('bash', 'zsh'):
         if shutil.which(name):
             result = sp.run([name, '-ic', 'type sfind'], env=env, text=True, capture_output=True)
             assert result.returncode == 0, result.stderr
+            # The helpers keep their documented meaning: sfind searches file
+            # contents with a line of context, dfind finds directories by name,
+            # pfind prints a match through the next blank line.
+            result = sp.run([name, '-ic', 'cd "$HOME/notes" && sfind needle . && echo ---- && dfind needle . '
+                             '&& echo ---- && pfind needle log.txt'],
+                            env=env, text=True, capture_output=True)
+            found, folders, paragraph = (result.stdout + '--------').split('----')[:3]
+            assert 'log.txt:2:the needle is here' in found and 'log.txt-1-before' in found, (name, result.stdout, result.stderr)
+            assert 'needle-dir' in folders and 'log.txt' not in folders, (name, result.stdout, result.stderr)
+            assert '2: the needle is here' in paragraph and '3: after' in paragraph and 'later' not in paragraph, \
+                (name, result.stdout, result.stderr)
     assert target.read_text().count('BEGIN SHELL-KIT') == 1
     print('PASS: Bash and Zsh can share the same physical startup file')
 
