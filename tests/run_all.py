@@ -93,6 +93,8 @@ SUITES = [
     ('tsessions_check', [sys.executable, '-B', 'tests/tsessions_check.py'],
      absent_tmux),
     ('render_check', [sys.executable, '-B', 'tests/render_check.py'], absent_rich),
+    ('tmenu_check', [sys.executable, '-B', 'tests/tmenu_check.py'],
+     lambda: absent_tmux() or absent('fzf')),
     ('check', [sys.executable, '-B', 'tests/check.py'], needs_enhanced),
     ('pty_check:vanilla', [sys.executable, '-B', 'tests/pty_check.py', 'vanilla'],
      needs_vanilla_integration),

@@ -32,7 +32,7 @@ clipboard are separate unless clipboard integration is available.
 ```sh
 tl             # list sessions: windows, idle time, command, path
 tl studio      # search name, running command, or working directory
-tmenu          # roomy session chooser
+tmenu          # session manager: attach, create, rename, kill
 tn research    # create named session
 ta research    # attach / switch by name or pattern
 ta             # reattach the most recent session

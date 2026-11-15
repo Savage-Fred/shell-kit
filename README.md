@@ -200,7 +200,7 @@ configs open ~/.bashrc  # open with your editor
 
 tl                      # sessions with windows, idle time, command, path
 tl studio               # search name, running command or working directory
-tmenu                   # roomy session picker with window preview
+tmenu                   # session manager with window preview
 tn project              # new session; switches safely inside tmux
 ta project              # attach or switch; name or unambiguous pattern
 ta                      # reattach the most recent session
@@ -210,6 +210,11 @@ tk project              # kill a session; tk project:2 kills one window
 tfreeze project         # suspend the work running in its panes
 tthaw project           # resume it
 ```
+
+In enhanced mode `tmenu` is an fzf list: Enter attaches or switches, Ctrl-N
+creates a session, Ctrl-R renames the highlighted one and Ctrl-X kills it after a
+y/N confirmation; a blank answer cancels. fzf older than 0.19 gets the list
+without those keys. Vanilla mode opens tmux's own chooser, where `x` kills.
 
 `tn` starts the tmux server inside its own systemd scope
 (`shell-kit-tmux.scope`), so closing the terminal — or systemd-oomd reclaiming
