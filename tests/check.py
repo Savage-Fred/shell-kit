@@ -177,7 +177,38 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
         assert tm('display-message', '-p', '-t', help_pane, '#{pane_width}') == '155'
         cheat('grep', help_pane)
         assert len(tm('list-windows').splitlines()) == 1, 'help toggle must restore work window'
-        print('PASS: search, installer, shell syntax, tmux focus/stack/toggle/ownership/profile')
+        # tmux names the *current* window to the pane-exited hook, not the one the
+        # pane left. A dedicated help window must survive that, and a sidebar
+        # orphaned in a background window must still be closed.
+        def windows():
+            return tm('list-windows', '-F', '#{window_id}').splitlines()
+        def helper(*flags, name=None, sheet='tmux'):
+            made = tm('new-window', *flags, '-P', '-F', '#{window_id}', *(['-n', name] if name else []), 'sleep 300')
+            tm('set-option', '-p', '-t', made, '@shell_kit', sheet)
+            return made
+        work = tm('display-message', '-p', '#{window_id}')
+        working_panes = tm('list-panes', '-t', work, '-F', '#{pane_id}')
+        dedicated = helper('-d', name='help:tmux')
+        orphan = helper('-d', sheet='grep')
+        cheat('cleanup', dedicated)
+        assert dedicated in windows(), 'cleanup closed a dedicated help window'
+        assert orphan not in windows(), 'cleanup left an orphaned help sidebar'
+        assert tm('list-panes', '-t', work, '-F', '#{pane_id}') == working_panes, 'cleanup touched a working window'
+        # The same through the real hook: the help window is current while the
+        # last pane of another window exits.
+        tm('select-window', '-t', dedicated)
+        orphan = helper('-d', sheet='grep')
+        tm('new-window', '-d', 'sleep 1')
+        for _ in range(100):
+            if orphan not in windows():
+                break
+            time.sleep(0.1)
+        assert orphan not in windows(), 'pane-exited hook did not clean an orphaned sidebar'
+        assert dedicated in windows(), 'an unrelated pane exit closed the help window'
+        tm('select-window', '-t', work)
+        tm('kill-window', '-t', dedicated)
+        assert windows() == [work]
+        print('PASS: search, installer, shell syntax, tmux focus/stack/toggle/ownership/profile, hook cleanup')
     finally:
         sp.run(['tmux', '-S', sock, 'kill-server'], env=env, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
     env.pop('TMUX', None)
