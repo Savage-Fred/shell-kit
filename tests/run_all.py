@@ -121,8 +121,9 @@ def main(patterns):
         print('RUN  %s' % name, flush=True)
         started = time.time()
         try:
+            # No suite may wait on the terminal this runner was started from.
             done = sp.run(command, cwd=ROOT, text=True, capture_output=True,
-                          timeout=TIMEOUT)
+                          stdin=sp.DEVNULL, timeout=TIMEOUT)
         except sp.TimeoutExpired:
             elapsed = time.time() - started
             results.append((name, 'FAIL', elapsed, 'timed out after %ds' % TIMEOUT))

@@ -184,8 +184,10 @@ def main(args):
                 raise
         return
     if action == 'cleanup':
-        if not args or not args[0]:
-            return
+        if not args:
+            raise RuntimeError('Missing window. Usage: cheat cleanup WINDOW')
+        if not args[0]:
+            return  # A hook can fire after its pane, and so its window id, is gone.
         with locked():
             try:
                 rows = panes(args[0])

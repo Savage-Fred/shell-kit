@@ -88,7 +88,9 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-check-') as tmp:
     env.pop('TMUX', None)
     env.pop('TMUX_PANE', None)
     def call(*cmd, input=None, check=True):
-        return sp.run(cmd, env=env, input=input, text=True, stdout=sp.PIPE, stderr=sp.PIPE, check=check)
+        # Never inherit the caller's stdin: tmenu's no-terminal fallback reads a choice from it.
+        return sp.run(cmd, env=env, input=input, stdin=None if input is not None else sp.DEVNULL,
+                      text=True, stdout=sp.PIPE, stderr=sp.PIPE, check=check)
     call('bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', 'enhanced', '--yes')
     before = (home / '.bashrc').read_text()
     call('bash', str(ROOT / 'install.sh'), '--components', 'helpers,references,tmux,vim,skill', '--mode', 'enhanced', '--yes')
