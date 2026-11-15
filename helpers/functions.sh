@@ -7,10 +7,14 @@ case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
 #   sfind:  fd -> POSIX find (case-insensitive filename search)
 #   dfind:  fd -> POSIX find (directory search)
 #   pfind:  fd -> POSIX find (file path search)
+# Existing definitions win: a name already taken by an alias, function or
+# command is skipped. The `function NAME` form is deliberate; `NAME() {` would
+# be rewritten by a same-named alias while the definition is parsed.
 
 # fif: Find in files with graceful degradation.
 # When rg, fzf, or bat/batcat is missing, cleanly falls back to grep -rn and standard pager.
-fif() {
+if ! type fif >/dev/null 2>&1; then
+function fif {
     local query="${1:-}"
     local target="${2:-.}"
     if [ -z "$query" ]; then
@@ -56,9 +60,11 @@ fif() {
         fi
     fi
 }
+fi
 
 # sfind: Search files by pattern (using fd if available, falling back cleanly to POSIX find)
-sfind() {
+if ! type sfind >/dev/null 2>&1; then
+function sfind {
     local query="${1:-}"
     local target="${2:-.}"
     local fd_cmd=""
@@ -69,9 +75,11 @@ sfind() {
         find "$target" -name .git -prune -o -iname "*$query*" -print
     fi
 }
+fi
 
 # dfind: Search directories by pattern (using fd if available, falling back cleanly to POSIX find)
-dfind() {
+if ! type dfind >/dev/null 2>&1; then
+function dfind {
     local query="${1:-}"
     local target="${2:-.}"
     local fd_cmd=""
@@ -82,9 +90,11 @@ dfind() {
         find "$target" -name .git -prune -o -type d -iname "*$query*" -print
     fi
 }
+fi
 
 # pfind: Search path/files (using fd if available, falling back cleanly to POSIX find)
-pfind() {
+if ! type pfind >/dev/null 2>&1; then
+function pfind {
     local query="${1:-}"
     local target="${2:-.}"
     local fd_cmd=""
@@ -95,3 +105,4 @@ pfind() {
         find "$target" -name .git -prune -o -type f -iname "*$query*" -print
     fi
 }
+fi

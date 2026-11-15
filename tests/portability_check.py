@@ -820,6 +820,54 @@ echo "MOCK_TMUX_ACTION: $@"
         assert "eza -la" in res_mock_alias.stdout, f"ll did not use eza when present: {res_mock_alias.stdout}"
         mock_eza.unlink()
 
+        # --------------------------------------------------------------------
+        # 8. Existing definitions win: prompt, aliases and functions the user
+        #    already has survive sourcing the helpers; free names are filled.
+        # --------------------------------------------------------------------
+        sources = f'''
+        . "{ROOT}/helpers/functions.sh"
+        . "{ROOT}/helpers/aliases.sh"
+        . "{ROOT}/helpers/prompt.sh"
+        '''
+        keep_script = '''
+        PS1='CUSTOM> '
+        alias ll='ls -lh'
+        ls() { echo own-ls; }
+        alias fif='echo own-fif'
+        sfind() { echo own-sfind; }
+        ''' + sources + '''
+        echo "PS1=[$PS1]"
+        alias ll
+        alias ls 2>/dev/null || echo ls-alias-absent
+        ls
+        alias fif
+        typeset -f fif >/dev/null || echo fif-function-absent
+        sfind anything
+        echo "pfind=$(type -t pfind) la=$(alias la)"
+        [ -z "$(typeset -f _sk_alias _sk_setup_prompt setup_prompt 2>/dev/null)" ] && echo leaked=0
+        '''
+        res_keep = sp.run([BASH, '-i', '-c', keep_script], env=env, capture_output=True, text=True)
+        assert res_keep.returncode == 0, f"helpers failed over existing definitions: {res_keep.stderr}"
+        for expected in ('PS1=[CUSTOM> ]', "alias ll='ls -lh'", 'ls-alias-absent', 'own-ls',
+                         "alias fif='echo own-fif'", 'fif-function-absent', 'own-sfind',
+                         "pfind=function la=alias la='ls -a'", 'leaked=0'):
+            assert expected in res_keep.stdout, f"existing definition lost ({expected!r}): {res_keep.stdout}{res_keep.stderr}"
+
+        # The fallback prompt still replaces the shell's built-in default.
+        stock_script = "PS1='\\s-\\v\\$ '\n" + sources + 'echo "PS1=[$PS1]"\n'
+        res_stock = sp.run([BASH, '-i', '-c', stock_script], env=env, capture_output=True, text=True)
+        assert res_stock.returncode == 0 and 'PS1=[[\\u@\\h \\W]\\$ ]' in res_stock.stdout, \
+            f"fallback prompt did not replace the built-in default: {res_stock.stdout}{res_stock.stderr}"
+
+        # A starship the user already initialised is not initialised again.
+        mock_starship.write_text('#!/bin/sh\nif [ "$1" = "init" ]; then echo "export STARSHIP_LOADED=1"; exit 0; fi\n')
+        mock_starship.chmod(0o755)
+        res_twice = sp.run([BASH, '-i', '-c', mock_prompt_script],
+                           env=dict(env, STARSHIP_SHELL='bash'), capture_output=True, text=True)
+        assert res_twice.returncode == 0 and 'STARSHIP_STATUS=0' in res_twice.stdout, \
+            f"starship was initialised a second time: {res_twice.stdout}{res_twice.stderr}"
+        mock_starship.unlink()
+
     log("Tier 8 passed: Graceful degradation for optional dependencies (rg, fd, fzf, bat, eza, starship) verified.")
 
 

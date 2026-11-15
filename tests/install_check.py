@@ -210,6 +210,26 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-shared-rc-') as folder:
     assert target.read_text().count('BEGIN SHELL-KIT') == 1
     print('PASS: Bash and Zsh can share the same physical startup file')
 
+with tempfile.TemporaryDirectory(prefix='shell-kit-keeps-mine-') as folder:
+    home = Path(folder)
+    env = dict(os.environ, HOME=folder, ZDOTDIR=folder)
+    for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV', 'SHELL_KIT_COMPONENTS', 'STARSHIP_SHELL'):
+        env.pop(key, None)
+    custom = ("PS1='MINE> '\nalias ll='echo my-ll'\nalias la='echo my-la'\n"
+              "function ls { echo my-ls; }\nfunction sfind { echo my-sfind; }\n")
+    (home / '.bashrc').write_text(custom)
+    (home / '.zshrc').write_text(custom)
+    sp.run([BASH, str(ROOT / 'install.sh'), '--components', 'helpers',
+            '--mode', 'vanilla', '--yes'], env=env, check=True, capture_output=True)
+    probe = 'echo "PS1=[$PS1]"; alias ll la; ls; sfind x; type pfind >/dev/null && echo pfind-added'
+    for name in ('bash', 'zsh'):
+        if shutil.which(name):
+            result = sp.run([BASH if name == 'bash' else name, '-ic', probe],
+                            env=env, text=True, capture_output=True)
+            for expected in ('PS1=[MINE> ]', 'echo my-ll', 'echo my-la', 'my-ls', 'my-sfind', 'pfind-added'):
+                assert expected in result.stdout, (name, expected, result.stdout, result.stderr)
+    print('PASS: an installed helpers component keeps the existing prompt, aliases and functions')
+
 if shutil.which('nvim'):
     with tempfile.TemporaryDirectory(prefix='shell-kit-legacy-vim-') as folder:
         home = Path(folder)
