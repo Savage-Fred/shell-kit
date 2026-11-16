@@ -91,7 +91,7 @@ unchecks those dependent integrations. The preview shows the complete selection.
 
 | Component | Vanilla dependencies | Enhanced additions |
 |---|---|---|
-| Shell helpers / configs | Bash, awk, grep, find, sort, tr | None; uses rg when available |
+| Shell helpers / configs | Bash, awk, grep, find, sort, tr | None; uses rg when available; `pgp` needs gpg |
 | References / shell F1–F6 | Bash, cat; less optional | Python 3, less, private Rich environment |
 | Tmux keys / session picker | References, tmux >=3.2 | fzf |
 | Vim / Neovim references | References, Vim with scripting or Neovim | None |
@@ -250,6 +250,39 @@ aliases. The search helpers treat their terms literally; raw `rg` remains
 available for regular expressions. `sfind` uses ripgrep and its normal ignore
 rules when available; its standard grep fallback searches hidden and ignored
 files too, so start from a specific directory; `dfind` traverses directories except `.git` and does not follow symlinks.
+
+### PGP identities
+
+`pgp` wraps gpg for people who keep more than one identity — for example a
+real-name key and a pseudonymous one — and loads only when gpg is installed.
+
+```sh
+# In your rc file, once: name your keys by fingerprint, pick a default.
+PGP_IDENTITIES='me=<FPR> anon=<FPR>'
+PGP_IDENTITY=me
+
+pgp ids                 # secret keys with name, expiry, ownertrust; * = active
+pgp use anon            # switch this shell; pgp use - falls back to gpg default-key
+pgp new 'Name <email>'  # ed25519 sign + cv25519 encrypt, 3-year expiry
+pgp sign [-d] [FILE]    # clearsign, or detached .asc
+pgp encrypt -r bob FILE # to bob and to yourself; -k pastes an unknown key
+pgp verify [FILE | SIG DATA]
+pgp doctor              # agent, GPG_TTY, ownertrust, expiry, pass recipients
+```
+
+Signing and encryption always pass the active identity to gpg explicitly, so
+`default-key` in gpg.conf never signs on behalf of another identity, and
+"yourself" as a recipient means the identity in use. Recipient key IDs are
+visible in every message, so a pseudonymous message never lists your real key.
+`--hide` (gpg `--throw-keyids`) removes them altogether. An uncertified
+recipient is refused until you check its fingerprint and run
+`gpg --lsign-key`, or pass `--trust-anyway`. When the signer's key is missing,
+`verify` asks before it contacts keys.openpgp.org.
+
+`pgp doctor` explains the failure most likely to bite `pass`: your own key's
+ownertrust has dropped below *ultimate*, so `gpg --batch --encrypt` reports
+"Unusable public key". `pgp trust ID` restores it, and only for keys whose
+secret part you hold.
 
 `configs` is part of Helpers in both modes. Reload your shell after installation
 so its wrapper can identify the calling Bash/Zsh, login status and `ZDOTDIR`.

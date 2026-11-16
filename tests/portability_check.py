@@ -42,6 +42,7 @@ def check_shell_syntax():
         ROOT / 'helpers' / 'functions.sh',
         ROOT / 'helpers' / 'aliases.sh',
         ROOT / 'helpers' / 'prompt.sh',
+        ROOT / 'helpers' / 'pgp.sh',
         ROOT / 'vanilla' / 'cheat',
         ROOT / 'vanilla' / 'configs',
         ROOT / 'vanilla' / 'shell-kit-search',

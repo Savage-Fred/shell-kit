@@ -48,6 +48,21 @@ tfreeze work     # suspend the work running in a session
 tthaw work       # resume it
 ```
 
+## PGP with named identities
+
+```sh
+pgp ids               # your keys: name, fingerprint, expiry, trust (* = active)
+pgp use anon          # sign/encrypt as anon in this shell; pgp use - clears
+pgp sign msg.txt      # clearsign as the active identity (-u ID overrides)
+pgp encrypt -r bob f  # to bob + yourself; no -r: just yourself; -k: paste key
+pgp decrypt f.asc     # or paste; pgp verify [FILE | SIG DATA]
+pgp doctor            # agent, ownertrust, expiry, pass recipients
+```
+
+Name keys once: `PGP_IDENTITIES='me=FPR anon=FPR'`, `PGP_IDENTITY=me`.
+"Unusable public key" on your own key (and failing `pass insert`) means its
+ownertrust slipped below ultimate: `pgp trust ID`.
+
 ## Alias or function?
 
 An alias abbreviates a command. A function can use arguments explicitly.

@@ -19,6 +19,7 @@ if [ -n "$_sk_helpers" ]; then
     [ -r "$_sk_helpers/functions.sh" ] && . "$_sk_helpers/functions.sh"
     [ -r "$_sk_helpers/aliases.sh" ] && . "$_sk_helpers/aliases.sh"
     [ -r "$_sk_helpers/prompt.sh" ] && . "$_sk_helpers/prompt.sh"
+    [ -r "$_sk_helpers/pgp.sh" ] && ! typeset -f pgp >/dev/null 2>&1 && . "$_sk_helpers/pgp.sh"
 fi
 
 if ! type aliases >/dev/null 2>&1; then
