@@ -31,7 +31,7 @@ def manage_keys():
     # Each action asks on the terminal, keeps a tmux error visible until Enter,
     # then refreshes the list. Nothing is created, renamed or killed on a blank
     # answer. The commands avoid parentheses, which would end fzf's execute(...).
-    after = " || read -r _)+reload(tmux -u list-sessions -F '" + FORMAT + "' 2>/dev/null)+beginning-of-line+kill-line"
+    after = " || read -r _)+reload(tmux -u list-sessions -F '" + FORMAT + "' 2>/dev/null || true)+beginning-of-line+kill-line"
     return [
         '--bind', "ctrl-n:execute(printf 'New session name, blank to cancel: '; read -r name; [ -z \"$name\" ] || tmux new-session -d -s \"$name\"" + after,
         '--bind', "ctrl-r:execute(printf 'Rename %s to, blank to cancel: ' {2}; read -r name; [ -z \"$name\" ] || tmux rename-session -t {1} \"$name\"" + after,

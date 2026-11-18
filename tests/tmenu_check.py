@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Drive the enhanced session manager through a PTY on an isolated tmux socket."""
+import fcntl
 import os
 from pathlib import Path
 import pty
 import select
 import signal
+import struct
 import subprocess as sp
 import sys
 import tempfile
@@ -23,7 +25,7 @@ class Picker:
         self.cursor = 0
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
-            termios.tcsetwinsize(0, (40, 120))
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
             os.execvpe(TMENU, [TMENU], env)
 
     def pump(self, seconds):
