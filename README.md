@@ -134,7 +134,11 @@ The manager respects `$ZDOTDIR`, `$XDG_CONFIG_HOME` for Neovim/tmux, an existing
 `~/.vim/vimrc`, and Bash's active login profile. It records managed paths so a
 later uninstall can remove its blocks even after config locations change.
 Unrelated conflicting files/links are preserved and reported. Protected optional
-skill discovery directories are skipped. Existing aliases and functions win.
+skill discovery directories are skipped. Existing aliases and functions win:
+helpers only fill names that are still free, and that includes the `ls`/`ll`
+aliases a distribution's default rc file already defines. An installed starship
+is started; without it the fallback prompt only replaces an unset or built-in
+default prompt, never one your rc file set.
 
 Open a **new shell/editor** after saving. In a running tmux server, source the
 active tmux configuration to load added bindings. Removing a component does not

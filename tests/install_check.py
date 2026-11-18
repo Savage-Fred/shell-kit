@@ -203,12 +203,58 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-shared-rc-') as folder:
         (home / name).symlink_to(target.name)
     sp.run([BASH, str(ROOT / 'install.sh'), '--components', 'helpers',
             '--mode', 'vanilla', '--yes'], env=env, check=True, capture_output=True)
+    notes = home / 'notes'
+    (notes / 'needle-dir').mkdir(parents=True)
+    (notes / 'log.txt').write_text('before\nthe needle is here\nafter\n\nlater\n')
     for name in ('bash', 'zsh'):
         if shutil.which(name):
             result = sp.run([name, '-ic', 'type sfind'], env=env, text=True, capture_output=True)
             assert result.returncode == 0, result.stderr
+            # The helpers keep their documented meaning: sfind searches file
+            # contents with a line of context, dfind finds directories by name,
+            # pfind prints a match through the next blank line.
+            result = sp.run([name, '-ic', 'cd "$HOME/notes" && sfind needle . && echo ---- && dfind needle . '
+                             '&& echo ---- && pfind needle log.txt'],
+                            env=env, text=True, capture_output=True)
+            found, folders, paragraph = (result.stdout + '--------').split('----')[:3]
+            assert 'log.txt:2:the needle is here' in found and 'log.txt-1-before' in found, (name, result.stdout, result.stderr)
+            assert 'needle-dir' in folders and 'log.txt' not in folders, (name, result.stdout, result.stderr)
+            assert '2: the needle is here' in paragraph and '3: after' in paragraph and 'later' not in paragraph, \
+                (name, result.stdout, result.stderr)
     assert target.read_text().count('BEGIN SHELL-KIT') == 1
     print('PASS: Bash and Zsh can share the same physical startup file')
+
+with tempfile.TemporaryDirectory(prefix='shell-kit-keeps-mine-') as folder:
+    home = Path(folder) / 'home'
+    home.mkdir()
+    # A controlled PATH: no starship or eza from the developer's machine.
+    tools = Path(folder) / 'bin'
+    tools.mkdir()
+    for name in ('bash', 'zsh', 'ls', 'awk', 'cat', 'cmp', 'cp', 'date', 'dirname', 'ln',
+                 'mkdir', 'mktemp', 'mv', 'readlink', 'rm', 'stty', 'tail',
+                 'chmod', 'grep', 'find', 'sort', 'tr'):
+        found = BASH if name == 'bash' else shutil.which(name)
+        if found:
+            (tools / name).symlink_to(found)
+    env = dict(os.environ, HOME=str(home), ZDOTDIR=str(home), PATH=str(tools))
+    for key in ('TMUX', 'TMUX_PANE', 'BASH_ENV', 'ENV', 'SHELL_KIT_COMPONENTS', 'STARSHIP_SHELL'):
+        env.pop(key, None)
+    custom = ("PS1='MINE> '\nalias ll='echo my-ll'\nalias la='echo my-la'\n"
+              "function ls { echo my-ls; }\nfunction sfind { echo my-sfind; }\n")
+    (home / '.bashrc').write_text(custom)
+    (home / '.zshrc').write_text(custom)
+    sp.run([BASH, str(ROOT / 'install.sh'), '--components', 'helpers',
+            '--mode', 'vanilla', '--yes'], env=env, check=True, capture_output=True)
+    probe = ('echo "PS1=[$PS1]"; alias ll la l; alias ls 2>/dev/null || echo ls-alias-absent; '
+             'ls; sfind x')
+    for name in ('bash', 'zsh'):
+        if (tools / name).exists():
+            result = sp.run([str(tools / name), '-ic', probe], env=env, text=True, capture_output=True)
+            # Kept: prompt, ll, la, the ls and sfind functions. Filled: the free name l.
+            for expected in ('PS1=[MINE> ]', "ll='echo my-ll'", "la='echo my-la'", 'ls-alias-absent',
+                             'my-ls', 'my-sfind', "l='ls -l'"):
+                assert expected in result.stdout, (name, expected, result.stdout, result.stderr)
+    print('PASS: an installed helpers component keeps the existing prompt, aliases and functions')
 
 if shutil.which('nvim'):
     with tempfile.TemporaryDirectory(prefix='shell-kit-legacy-vim-') as folder:

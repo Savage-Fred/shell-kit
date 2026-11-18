@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
-# Directory aliases with eza / ls fallbacks.
+# Directory aliases with eza / ls fallbacks. Existing aliases and functions win:
+# a name the user already defined is left alone. Names are quoted so a Zsh
+# global alias of the same name cannot rewrite the call.
+
+function _sk_alias {
+    alias "$1" >/dev/null 2>&1 && return 0
+    typeset -f "$1" >/dev/null 2>&1 && return 0
+    alias "$1=$2"
+}
 
 if command -v eza >/dev/null 2>&1; then
-    alias ls='eza'
-    alias ll='eza -la'
-    alias l='eza -l'
-    alias la='eza -a'
-    alias lt='eza --tree'
+    _sk_alias 'ls' 'eza'
+    _sk_alias 'll' 'eza -la'
+    _sk_alias 'l' 'eza -l'
+    _sk_alias 'la' 'eza -a'
+    _sk_alias 'lt' 'eza --tree'
 else
-    if ls --color=auto -d . >/dev/null 2>&1; then
-        alias ls='ls --color=auto'
-    elif ls -G -d . >/dev/null 2>&1; then
-        alias ls='ls -G'
-    else
-        alias ls='ls'
+    if command ls --color=auto -d . >/dev/null 2>&1; then
+        _sk_alias 'ls' 'ls --color=auto'
+    elif command ls -G -d . >/dev/null 2>&1; then
+        _sk_alias 'ls' 'ls -G'
     fi
-    alias ll='ls -la'
-    alias l='ls -l'
-    alias la='ls -a'
+    _sk_alias 'll' 'ls -la'
+    _sk_alias 'l' 'ls -l'
+    _sk_alias 'la' 'ls -a'
 fi
+unset -f _sk_alias
