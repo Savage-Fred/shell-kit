@@ -20,14 +20,20 @@ function _sk_bin {
     local name found
     for name in "$@"; do
         found=$(unalias -a 2>/dev/null; unset -f "$name" 2>/dev/null; command -v "$name" 2>/dev/null) || continue
-        case $found in /*) printf '%s\n' "$found"; return 0 ;; esac
+        case $found in
+            /*) ;;
+            */*) found=$PWD/$found ;;
+            *) continue ;;
+        esac
+        printf '%s\n' "$found"
+        return 0
     done
     return 1
 }
 
 # fif: Find in files with graceful degradation.
 # When rg, fzf, or bat/batcat is missing, cleanly falls back to grep -rn and standard pager.
-if ! type fif >/dev/null 2>&1; then
+if ! type 'fif' >/dev/null 2>&1; then
 function fif {
     local query="${1:-}"
     local target="${2:-.}"
@@ -52,20 +58,20 @@ function fif {
     if [ -t 0 ] && [ -t 1 ] && [ -n "$fzf_cmd" ]; then
         local preview_cmd
         if [ -n "$bat_cmd" ]; then
-            preview_cmd="$bat_cmd --style=numbers --color=always --highlight-line {2} {1} 2>/dev/null || cat {1}"
+            preview_cmd='"$SHELL_KIT_BAT" --style=numbers --color=always --highlight-line {2} -- {1} 2>/dev/null || cat -- {1}'
         else
-            preview_cmd="cat {1}"
+            preview_cmd="cat -- {1}"
         fi
 
         if [ -n "$rg_cmd" ]; then
             "$rg_cmd" --color=always --line-number --no-heading --smart-case -- "${query}" "${target}" 2>/dev/null | \
-                "$fzf_cmd" --ansi \
+                SHELL_KIT_BAT="$bat_cmd" "$fzf_cmd" --ansi \
                     --delimiter : \
                     --preview "$preview_cmd" \
                     --preview-window 'up,60%,border-bottom,+{2}+3/3,~3' || true
         else
             command grep -r -n -H -- "${query}" "${target}" 2>/dev/null | \
-                "$fzf_cmd" --delimiter : \
+                SHELL_KIT_BAT="$bat_cmd" "$fzf_cmd" --delimiter : \
                     --preview "$preview_cmd" \
                     --preview-window 'up,60%,border-bottom,+{2}+3/3,~3' || true
         fi
