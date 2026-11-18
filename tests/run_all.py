@@ -90,6 +90,7 @@ SUITES = [
     ('portability_check', [sys.executable, '-B', 'tests/portability_check.py'], needs_installer),
     ('legacy', [sys.executable, '-m', 'unittest', 'discover', '-s',
                 'legacy/homelab-shell/scripts', '-p', 'test_*.py'], lambda: ''),
+    ('pgp_check', [sys.executable, '-B', 'tests/pgp_check.py'], lambda: absent('gpg')),
     ('tsessions_check', [sys.executable, '-B', 'tests/tsessions_check.py'],
      absent_tmux),
     ('render_check', [sys.executable, '-B', 'tests/render_check.py'], absent_rich),
