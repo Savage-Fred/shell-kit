@@ -101,12 +101,12 @@ Identities: PGP_IDENTITIES='me=FPR anon=FPR', default PGP_IDENTITY=me.
 EOF
 }
 
-# One tab-separated row per secret key: fpr, validity, ownertrust, caps, expiry, first uid.
+# One colon-separated row per secret key: fpr, validity, ownertrust, caps, expiry, first uid.
 _sk_pgp_secret_rows() {
     gpg --batch --with-colons --list-secret-keys 2>/dev/null | awk -F: '
         $1=="sec" {v=$2; ot=$9; cap=$12; ex=$7; w=1; f=""; next}
         w && $1=="fpr" {f=$10; w=0}
-        $1=="uid" && f!="" {printf "%s\t%s\t%s\t%s\t%s\t%s\n", f, v, ot, cap, ex, $10; f=""}'
+        $1=="uid" && f!="" {printf "%s:%s:%s:%s:%s:%s\n", f, v, ot, cap, ex, $10; f=""}'
 }
 
 _sk_pgp_day() {
@@ -115,12 +115,11 @@ _sk_pgp_day() {
 }
 
 _sk_pgp_ids() {
-    local def rows fpr v ot cap exp uid name mark tab
-    tab=$(printf '\t')
+    local def rows fpr v ot cap exp uid name mark
     def=$(_sk_pgp_signer 2>/dev/null)
     rows=$(_sk_pgp_secret_rows)
     [ -n "$rows" ] || { _sk_pgp_note 'no secret keys (create one: pgp new)'; return 1; }
-    while IFS=$tab read -r fpr v ot cap exp uid; do
+    while IFS=: read -r fpr v ot cap exp uid; do
         name=$(_sk_pgp_name_of "$fpr") || name=-
         mark=' '; [ "$fpr" = "$def" ] && mark='*'
         case $ot in u) ot=ultimate ;; f) ot=full ;; m) ot=marginal ;; n) ot=never ;; *) ot=unset ;; esac
@@ -178,7 +177,7 @@ _sk_pgp_fetch() {
     gpg --keyserver hkps://keys.openpgp.org --recv-keys -- "$1"
 }
 
-_sk_pgp_encrypt() {
+_sk_pgp_encrypt() (
     local who='' out='' sign=0 self=1 hide=0 paste=0 anyway=0 rcpts='' r spec fpr valid
     while [ $# -gt 0 ]; do
         case $1 in
@@ -201,7 +200,7 @@ _sk_pgp_encrypt() {
     local tmp; tmp=$(mktemp -d "${TMPDIR:-/tmp}/pgp.XXXXXX") || _sk_pgp_die 'mktemp failed'
     trap 'rm -rf "$tmp"' EXIT
     local input=${1-}
-    set -- --encrypt
+    set -- --no-encrypt-to --encrypt
     [ -n "$me" ] && set -- "$@" --local-user "$me"
     if [ "$paste" = 1 ]; then
         _sk_pgp_note "Paste the recipient's public key block, then press Ctrl-D."
@@ -224,6 +223,7 @@ _sk_pgp_encrypt() {
 $rcpts
 EOF
     if [ -z "$rcpts" ] && [ "$paste" = 0 ]; then
+        [ "$self" = 1 ] || _sk_pgp_die '--no-self requires a recipient'
         [ -n "$me" ] || me=$(gpg --batch --with-colons --list-secret-keys 2>/dev/null | awk -F: '$1=="sec"{w=1;next} w&&$1=="fpr"{print $10;exit}')
         [ -n "$me" ] || _sk_pgp_die 'no recipient and no secret key to encrypt to'
         self=1
@@ -239,7 +239,7 @@ EOF
     [ -n "$out" ] && set -- "$@" --yes --output "$out"
     [ -z "$input" ] && _sk_pgp_paste_hint 'Enter the message'
     if [ -n "$input" ]; then gpg "$@" -- "$input"; else gpg "$@"; fi
-}
+)
 
 _sk_pgp_decrypt() {
     local out=''
@@ -279,7 +279,7 @@ _sk_pgp_sign() {
     if [ -n "$input" ]; then gpg "$@" -- "$input"; else gpg "$@"; fi
 }
 
-_sk_pgp_verify() {
+_sk_pgp_verify() (
     local tmp rc missing fpr
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/pgp.XXXXXX") || _sk_pgp_die 'mktemp failed'
     trap 'rm -rf "$tmp"' EXIT
@@ -290,7 +290,7 @@ _sk_pgp_verify() {
         set -- "$tmp/msg"
     fi
     [ $# -le 2 ] || _sk_pgp_die 'usage: pgp verify [FILE | SIG DATA]'
-    gpg --status-fd 3 --verify -- "$@" 3>"$tmp/status" && return 0
+    gpg --no-auto-key-retrieve --status-fd 3 --verify -- "$@" 3>"$tmp/status" && return 0
     rc=$?
     # ERRSIG field 9 carries the issuer fingerprint when the signature has one.
     missing=$(awk '$2=="NO_PUBKEY"{print $3; exit}' "$tmp/status")
@@ -305,21 +305,20 @@ _sk_pgp_verify() {
     else
         exit "$rc"
     fi
-    gpg --verify -- "$@"
-}
+    gpg --no-auto-key-retrieve --verify -- "$@"
+)
 
 _sk_pgp_trust() {
     local fpr
     fpr=$(_sk_pgp_signer "${1-}") || exit 1
     [ -n "$fpr" ] || _sk_pgp_die 'usage: pgp trust ID (or set an active identity)'
     # Ultimate trust is only for keys you own; _sk_pgp_signer required the secret key.
-    printf '%s:6:\n' "$fpr" | gpg --import-ownertrust && gpg --check-trustdb >/dev/null 2>&1
+    printf '%s:6:\n' "$fpr" | gpg --import-ownertrust && gpg --check-trustdb >/dev/null 2>&1 || return 1
     gpg --list-keys --keyid-format long -- "$fpr" | sed -n '/^uid/p'
 }
 
 _sk_pgp_doctor() {
-    local bad=0 home=${GNUPGHOME:-$HOME/.gnupg} line fpr v ot cap exp uid id store rows tab
-    tab=$(printf '\t')
+    local bad=0 home=${GNUPGHOME:-$HOME/.gnupg} line fpr v ot cap exp uid id store rows
     _ok() { printf '  ok   %s\n' "$*"; }
     _bad() { printf '  FAIL %s\n' "$*"; bad=1; }
     _warn() { printf '  warn %s\n' "$*"; }
@@ -334,7 +333,7 @@ _sk_pgp_doctor() {
     printf 'secret keys:\n'
     rows=$(_sk_pgp_secret_rows)
     [ -n "$rows" ] || _bad 'no secret keys (pgp new)'
-    while IFS=$tab read -r fpr v ot cap exp uid; do
+    while IFS=: read -r fpr v ot cap exp uid; do
         [ -n "$fpr" ] || continue
         printf ' %s %s\n' "$fpr" "$uid"
         case $ot in u) _ok 'ownertrust ultimate' ;; *) _bad "ownertrust '${ot:-unset}', not ultimate: batch encryption (pass insert) fails. Fix: pgp trust $fpr" ;; esac
@@ -385,7 +384,7 @@ _sk_pgp_main() {
     esac
 }
 
-pgp() {
+function pgp {
     if [ "${1-}" = use ]; then
         # Runs in the current shell so the selection sticks for this session.
         case ${2-} in

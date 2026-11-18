@@ -55,6 +55,10 @@ def main():
             env.pop(k, None)
         me = make_key(env, 'Real Person <real@example.test>')
         anon = make_key(env, 'Pen Name <pen@example.test>')
+        (gh / 'gpg.conf').write_text(f'encrypt-to {me}\nauto-key-retrieve\n')
+        (home / 'scratch').mkdir()
+        env['TMPDIR'] = str(home / 'scratch')
+        gpg(env, '--quick-set-expire', anon, '0')
         # A third party lives in its own keyring so we can import it uncertified.
         other_home = home / 'o'
         other_home.mkdir(mode=0o700)
@@ -89,7 +93,7 @@ def main():
             r = run('pgp use anon && pgp use')
             check(f'{label}: use sets identity', r.stdout.strip().endswith('anon'), r.stdout + r.stderr)
             r = run('pgp use anon && pgp ids')
-            check(f'{label}: ids marks active', f'* anon     {anon}' in r.stdout, r.stdout + r.stderr)
+            check(f'{label}: ids marks active', f'* anon     {anon}  exp never' in r.stdout, r.stdout + r.stderr)
 
             # Signing follows the active identity, not gpg's default (first) key.
             r = run('pgp use anon && pgp sign -o signed.asc msg')
@@ -139,6 +143,7 @@ def main():
                        capture_output=True, timeout=60, start_new_session=True)
             check(f'{label}: missing key reported, no hang',
                   r.returncode != 0 and 'not in your keyring' in r.stderr, r.stderr)
+            check(f'{label}: temporary files removed', not list((home / 'scratch').iterdir()))
     finally:
         sp.run(['gpgconf', '--kill', 'all'], env=dict(os.environ, GNUPGHOME=str(Path(tmp) / 'g')))
         for sub in ('o', 's'):
