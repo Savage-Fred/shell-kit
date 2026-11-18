@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""A roomy native fzf session chooser; cancellation does nothing."""
+"""A roomy fzf session manager: attach, create, rename, kill. Esc does nothing."""
 import os
 import shutil
 import subprocess as sp
 import sys
 
-result = sp.run(['tmux', '-u', 'list-sessions', '-F', '#{session_id}\t#{session_name}\t#{session_windows} windows\t#{?session_attached,ATTACHED,detached}'], text=True, capture_output=True)
+FORMAT = '#{session_id}\t#{session_name}\t#{session_windows} windows\t#{?session_attached,ATTACHED,detached}'
+result = sp.run(['tmux', '-u', 'list-sessions', '-F', FORMAT], text=True, capture_output=True)
 if result.returncode:
     print('No sessions yet. Create one with: tn NAME')
     sys.exit(0)
@@ -19,12 +20,34 @@ def attach(target):
         os.execvp('tsessions', ['tsessions', 'run', verb, '-t', target])
     os.execvp('tmux', ['tmux', verb, '-t', target])
 
+def manage_keys():
+    """fzf bindings that manage sessions in place, or nothing for an fzf without reload."""
+    try:
+        version = tuple(int(part) for part in sp.check_output(['fzf', '--version'], text=True).split()[0].split('.')[:2])
+    except (OSError, sp.CalledProcessError, ValueError, IndexError):
+        return []
+    if version < (0, 19):
+        return []
+    # Each action asks on the terminal, keeps a tmux error visible until Enter,
+    # then refreshes the list. Nothing is created, renamed or killed on a blank
+    # answer. The commands avoid parentheses, which would end fzf's execute(...).
+    after = " || read -r _)+reload(tmux -u list-sessions -F '" + FORMAT + "' 2>/dev/null || true)+beginning-of-line+kill-line"
+    return [
+        '--bind', "ctrl-n:execute(printf 'New session name, blank to cancel: '; read -r name; [ -z \"$name\" ] || tmux new-session -d -s \"$name\"" + after,
+        '--bind', "ctrl-r:execute(printf 'Rename %s to, blank to cancel: ' {2}; read -r name; [ -z \"$name\" ] || tmux rename-session -t {1} \"$name\"" + after,
+        '--bind', "ctrl-x:execute(printf 'Kill session %s and everything running in it? [y/N] ' {2}; read -r answer; [ \"$answer\" != y ] && [ \"$answer\" != Y ] || tmux kill-session -t {1}" + after,
+    ]
+
 
 chosen = None
 if shutil.which('fzf') and sys.stdin.isatty() and sys.stdout.isatty():
     try:
         spacing = ['--gap=1', '--padding=1', '--border-label= Sheila’s sessions '] if '--gap' in sp.check_output(['fzf', '--help'], text=True) else []
-        chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=Enter: attach / switch     Esc: cancel     Create: tn NAME', '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap', *spacing], input=result.stdout, text=True, stdout=sp.PIPE)
+        keys = manage_keys()
+        header = 'Enter: attach / switch     Esc: cancel'
+        header += '\nCtrl-N: new     Ctrl-R: rename     Ctrl-X: kill' if keys else '     Create: tn NAME'
+        # fzf runs bindings with $SHELL; they are written for a POSIX shell.
+        chosen = sp.run(['fzf', '--height=80%', '--layout=reverse', '--border', '--delimiter=\t', '--with-nth=2..', '--prompt=Session > ', '--header=' + header, '--preview', 'tmux list-windows -t {1} -F "#{window_index}: #{window_name}   (#{window_panes} panes)"', '--preview-window=down:45%:wrap', *spacing, *keys], input=result.stdout, text=True, stdout=sp.PIPE, env=dict(os.environ, SHELL='/bin/sh'))
     except Exception:
         chosen = None
 
