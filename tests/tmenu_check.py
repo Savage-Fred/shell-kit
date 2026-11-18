@@ -109,6 +109,13 @@ with tempfile.TemporaryDirectory(prefix='shell-kit-tmenu-') as folder:
             assert tm('new-session', '-d', '-s', name, 'sleep 600').returncode == 0
         picker = Picker(env)
         picker.expect('alpha')
+        version = sp.check_output(['fzf', '--version'], text=True).split()[0]
+        if tuple(map(int, version.split('.')[:2])) < (0, 19):
+            assert b'Create: tn NAME' in picker.seen and b'Ctrl-X: kill' not in picker.seen
+            picker.keys(b'\x1b')
+            assert picker.finish() == 0
+            print('PASS: installed legacy fzf offers the plain picker')
+            sys.exit(0)
         assert b'Ctrl-N: new' in picker.seen and b'Ctrl-X: kill' in picker.seen, picker.seen[-400:]
 
         picker.keys(b'\x0e')                       # Ctrl-N, blank answer: nothing is created
